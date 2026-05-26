@@ -1784,126 +1784,242 @@ async function extractTextFromPDF(arrayBuffer){
 
 // ── MAIN PROCESS FUNCTION ──
 async function processPDF(file){
-  const statusEl = document.getElementById('pdf-status');
-  const sizeKB   = (file.size/1024).toFixed(0);
+  const S = document.getElementById('pdf-status');
+  if(!S) return;
 
-  statusEl.innerHTML=`
-  <div class="pdf-progress" style="margin-top:16px">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <i class="ti ti-file-type-pdf" style="font-size:32px;color:var(--err);flex-shrink:0"></i>
-      <div>
-        <div style="font-size:14px;font-weight:700">${file.name}</div>
-        <div style="font-size:12px;color:var(--muted)">${sizeKB} KB · Processing locally…</div>
+  const log = (msg, type='info') => {
+    const colors = {info:'var(--muted)',ok:'var(--ok)',warn:'var(--warn)',err:'var(--err)'};
+    const el = document.createElement('div');
+    el.style.cssText = `padding:4px 10px;font-size:12px;color:${colors[type]||colors.info};border-left:3px solid ${colors[type]||colors.info};margin-bottom:4px;font-family:monospace`;
+    el.textContent = '▶ ' + msg;
+    document.getElementById('pdf-log').appendChild(el);
+  };
+
+  S.innerHTML = `
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <i class="ti ti-file-type-pdf" style="font-size:24px;color:var(--err)"></i>
+        <div>
+          <div style="font-size:13px;font-weight:700">${file.name}</div>
+          <div style="font-size:11px;color:var(--muted)">${(file.size/1024).toFixed(0)} KB</div>
+        </div>
       </div>
-    </div>
-    <div class="prog-steps">
-      <div class="prog-step active" id="ps1"><i class="ti ti-loader spin"></i>Loading PDF…</div>
-      <div class="prog-step" id="ps2"><i class="ti ti-clock"></i>Extracting text layer…</div>
-      <div class="prog-step" id="ps3"><i class="ti ti-clock"></i>Checking if OCR needed…</div>
-      <div class="prog-step" id="ps4"><i class="ti ti-clock"></i>Running pattern recognition…</div>
-      <div class="prog-step" id="ps5"><i class="ti ti-clock"></i>Preparing form…</div>
-    </div>
-  </div>`;
+      <div id="pdf-log" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:180px;overflow-y:auto;margin-bottom:10px"></div>
+      <div id="pdf-form"></div>
+    </div>`;
 
-  await sleep(200);
-  let arrayBuffer;
+  await sleep(100);
+
+  // STEP 1: Read file
+  let buf;
   try {
-    arrayBuffer = await file.arrayBuffer();
-    stepDone('ps1','ps2','PDF loaded ('+sizeKB+' KB)');
-  } catch(e) { stepError('ps1','Could not read file: '+e.message); return; }
+    buf = await file.arrayBuffer();
+    log(`File read OK: ${buf.byteLength} bytes`,'ok');
+  } catch(e){ log('ERROR reading file: '+e.message,'err'); return; }
 
-  await sleep(150);
-
-  // ── Step 1: Try PDF.js text extraction ──
+  // STEP 2: Extract text via PDF.js
   let rawText = '';
-  let pageCount = 1;
-  let usedOCR = false;
-  let extractMethod = 'PDF.js text layer';
-
   try {
-    rawText = await extractTextFromPDF(arrayBuffer);
-    pageCount = (rawText.match(/PAGE BREAK/g)||[]).length + 1;
-  } catch(e) {
-    rawText = fallbackBinaryExtract(arrayBuffer);
-    extractMethod = 'binary scan (fallback)';
-  }
-
-  // ── Step 2: Detect if text layer is just labels (image-based PDF) ──
-  // Label-only PDFs have < 30 meaningful words and mostly header keywords
-  const LABEL_WORDS = ['PURCHASE ORDER','VENDOR','SHIP TO','ITEM #','DESCRIPTION',
-    'QTY','UNIT PRICE','TOTAL','SUBTOTAL','TAX','SHIPPING','DATE','PO #',
-    'SHIPPING TERMS','SHIPPING METHOD','DELIVERY DATE','COMMENTS'];
-  const textLines   = rawText.split('\n').map(l=>l.trim()).filter(l=>l.length>1);
-  const labelCount  = textLines.filter(l=>LABEL_WORDS.some(lw=>l.toUpperCase().includes(lw))).length;
-  const isLabelOnly = textLines.length < 30 && labelCount / Math.max(textLines.length,1) > 0.35;
-
-  stepDone('ps2','ps3', isLabelOnly
-    ? `Text layer has only ${textLines.length} lines (mostly labels) — needs OCR`
-    : `Text extracted: ${rawText.length} chars across ${pageCount} page(s)`);
-  await sleep(200);
-
-  // ── Step 3: If label-only, run Tesseract.js OCR on rendered PDF page ──
-  if(isLabelOnly){
-    document.getElementById('ps3').innerHTML =
-      '<i class="ti ti-loader spin"></i>Running OCR on PDF image (this takes 5-15 seconds)…';
-    try {
-      rawText = await runOCRonPDF(arrayBuffer);
-      usedOCR = true;
-      extractMethod = 'Tesseract.js OCR';
-      stepDone('ps3','ps4',`OCR complete: ${rawText.length} chars extracted`);
-    } catch(e) {
-      stepDone('ps3','ps4','OCR failed ('+e.message+') — using text layer');
+    if(typeof pdfjsLib === 'undefined') throw new Error('PDF.js not loaded');
+    const pdf  = await pdfjsLib.getDocument({data: new Uint8Array(buf)}).promise;
+    log(`PDF loaded: ${pdf.numPages} page(s)`,'ok');
+    for(let i=1;i<=Math.min(pdf.numPages,5);i++){
+      const page    = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      let lastY = null, line = '';
+      for(const item of content.items){
+        if(lastY !== null && Math.abs(item.transform[5]-lastY) > 5){ rawText += line.trim()+'\n'; line=''; }
+        line += item.str+' '; lastY = item.transform[5];
+      }
+      rawText += line.trim()+'\n';
     }
-  } else {
-    stepDone('ps3','ps4','Text layer has sufficient content — skipping OCR');
+    log(`Text layer extracted: ${rawText.trim().length} chars`,'ok');
+  } catch(e){ log('PDF.js error: '+e.message,'warn'); rawText=''; }
+
+  // STEP 3: Decide if OCR needed
+  const meaningfulLines = rawText.split('\n').map(l=>l.trim()).filter(l=>l.length>3);
+  const labelWords = ['PURCHASE ORDER','VENDOR','SHIP TO','ITEM #','DESCRIPTION','QTY','UNIT PRICE',
+                      'TOTAL','SUBTOTAL','TAX','SHIPPING','DATE','PO #','DELIVERY DATE'];
+  const labelCount = meaningfulLines.filter(l=>labelWords.some(lw=>l.toUpperCase().includes(lw))).length;
+  const needsOCR   = meaningfulLines.length < 35 && (labelCount / Math.max(meaningfulLines.length,1)) > 0.3;
+
+  log(`Text lines: ${meaningfulLines.length}, label-lines: ${labelCount}, needsOCR: ${needsOCR}`, needsOCR?'warn':'ok');
+
+  // STEP 4: Run OCR if needed
+  if(needsOCR){
+    log('Starting Tesseract.js OCR…','info');
+    try {
+      if(typeof Tesseract === 'undefined') throw new Error('Tesseract.js not loaded — check CDN');
+      const pdf2  = await pdfjsLib.getDocument({data: new Uint8Array(buf)}).promise;
+      const page  = await pdf2.getPage(1);
+      const vp    = page.getViewport({scale:2.5});
+      const cv    = document.createElement('canvas');
+      cv.width    = vp.width; cv.height = vp.height;
+      await page.render({canvasContext:cv.getContext('2d'), viewport:vp}).promise;
+      log(`Canvas rendered: ${cv.width}×${cv.height}px`,'ok');
+
+      const res = await Tesseract.recognize(cv,'eng',{
+        logger: m=>{
+          if(m.status==='recognizing text'){
+            log(`OCR: ${Math.round((m.progress||0)*100)}%`,'info');
+          }
+        }
+      });
+      rawText = res.data.text||'';
+      log(`OCR complete: ${rawText.trim().length} chars`,'ok');
+      log('OCR preview: '+rawText.slice(0,120).replace(/\n/g,' '),'info');
+    } catch(e){
+      log('OCR ERROR: '+e.message,'err');
+      log('Falling back to text layer only','warn');
+    }
   }
 
-  await sleep(200);
+  // STEP 5: Extract fields
+  log('Running field extraction…','info');
+  const fields = extractAllFields(rawText, file.name);
+  log(`Extracted: PO=${fields.poNumber} Date=${fields.poDate} Amt=${fields.amount} Vendor=${fields.vendorName||'?'} Item=${fields.itemDescription||'?'}`,'ok');
 
-  // ── Step 4: Pattern recognition ──
-  const patterns = runPatternRecognition(rawText, file.name);
-  patterns.isLabelOnly = isLabelOnly && !usedOCR;
-  stepDone('ps4','ps5',`Recognised ${patterns.fieldCount} fields via ${extractMethod}`);
-  await sleep(200);
-
-  // ── Step 5: Score & validate ──
-  const scored = scoreAndValidate(patterns, rawText, file.name);
-  stepDone('ps5', null, `Confidence: ${scored.confidence}% · ${scored.warnings.length} warnings`);
-
-  showExtractedForm(scored, file.name, rawText, extractMethod);
+  // STEP 6: Show form
+  showFinalForm(fields, file.name, rawText, needsOCR?'Tesseract OCR':'PDF.js');
 }
 
-// ── OCR using Tesseract.js: render PDF page to canvas → OCR ──
-async function runOCRonPDF(arrayBuffer){
-  if(typeof pdfjsLib === 'undefined') throw new Error('PDF.js not loaded');
+// ── SELF-CONTAINED FIELD EXTRACTOR ──
+function extractAllFields(text, filename){
+  const t   = text || '';
+  const tl  = t.toLowerCase();
+  const out = {poNumber:'',poDate:'',dueDate:'',amount:0,vendorName:'',itemDescription:'',notes:'',category:'Other',confidence:0,warnings:[]};
+  let hits  = 0;
 
-  // Render page 1 to canvas
-  const pdf    = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-  const page   = await pdf.getPage(1);
-  const scale  = 2.0; // higher = better OCR accuracy
-  const viewport = page.getViewport({scale});
+  // PO Number
+  const poM = t.match(/P\.?O\.?\s*#\s*(\d{4,})/i)
+           || t.match(/P\.?O\.?\s*(?:no|number|#)?\s*:?\s*([A-Z0-9][A-Z0-9\-\/]{3,15})/i)
+           || t.match(/order\s+(?:no|#)\s*:?\s*([A-Z0-9\-]{4,15})/i);
+  if(poM && !/^(DATE|TOTAL|ITEM|SHIP|DESC)/i.test(poM[1])){
+    out.poNumber = poM[1].replace(/\s/g,'').toUpperCase(); hits++;
+  } else {
+    const fn = filename.match(/(\d{4,})/);
+    out.poNumber = fn ? 'PO-'+fn[1] : 'PO-'+Date.now().toString().slice(-6);
+  }
 
-  const canvas  = document.createElement('canvas');
-  canvas.width  = viewport.width;
-  canvas.height = viewport.height;
-  const ctx = canvas.getContext('2d');
+  // All dates in text
+  const dates = [];
+  let dm;
+  const dp1 = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g;
+  const dp2 = /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/g;
+  while((dm=dp1.exec(t))!==null) dates.push({raw:dm[0],idx:dm.index});
+  while((dm=dp2.exec(t))!==null) dates.push({raw:dm[0],idx:dm.index});
+  dates.sort((a,b)=>a.idx-b.idx);
 
-  await page.render({canvasContext: ctx, viewport}).promise;
+  function closestDateAfter(label){
+    const lm = t.search(new RegExp(label,'i'));
+    if(lm<0) return null;
+    const d = dates.find(d=>d.idx>lm);
+    return d ? d.raw : null;
+  }
+  function nd(s){
+    if(!s) return null;
+    const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if(m1){ let y=+m1[3]; if(y<100)y+=2000; return `${y}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`; }
+    const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if(m2) return `${m2[1]}-${m2[2].padStart(2,'0')}-${m2[3].padStart(2,'0')}`;
+    return null;
+  }
 
-  // Run Tesseract.js OCR on canvas
-  if(typeof Tesseract === 'undefined') throw new Error('Tesseract.js not loaded');
+  const poDateRaw  = closestDateAfter('\\bDATE\\b') || dates[0]?.raw;
+  const dueDateRaw = closestDateAfter('DELIVERY.{0,5}DATE|DUE.{0,5}DATE') || dates[1]?.raw;
+  out.poDate  = nd(poDateRaw)  || new Date().toISOString().slice(0,10); if(out.poDate) hits++;
+  out.dueDate = nd(dueDateRaw) || new Date(Date.now()+45*864e5).toISOString().slice(0,10); if(out.dueDate) hits++;
 
-  const result = await Tesseract.recognize(canvas, 'eng', {
-    logger: m => {
-      if(m.status === 'recognizing text'){
-        const pct = Math.round((m.progress||0)*100);
-        const el  = document.getElementById('ps3');
-        if(el) el.innerHTML = `<i class="ti ti-loader spin"></i>OCR progress: ${pct}%…`;
-      }
+  // Amount — try multiple strategies
+  // 1) TOTAL\n amount$
+  const totM = t.match(/\bTOTAL\b[\s\S]{0,20}?([\d,]+\.\d{2})\s*\$?/i);
+  if(totM){ const n=parseFloat(totM[1].replace(/,/g,'')); if(n>0){out.amount=n;hits++;} }
+  // 2) Largest number$
+  if(!out.amount){
+    const all=[...t.matchAll(/([\d,]+\.\d{2})\s*\$/g)].map(m=>parseFloat(m[1].replace(/,/g,'')));
+    if(all.length){out.amount=Math.max(...all);hits++;}
+  }
+  // 3) $number
+  if(!out.amount){
+    const all=[...t.matchAll(/\$\s*([\d,]+\.\d{2})/g)].map(m=>parseFloat(m[1].replace(/,/g,'')));
+    if(all.length){out.amount=Math.max(...all);hits++;}
+  }
+  // 4) Bare large numbers
+  if(!out.amount){
+    const all=[...t.matchAll(/\b([\d,]{4,})\b/g)].map(m=>parseFloat(m[1].replace(/,/g,''))).filter(n=>n>100&&n<10000000);
+    if(all.length){out.amount=Math.max(...all);hits++;}
+  }
+
+  // Vendor — skip template placeholders, take first real name-like line
+  const skipLine = /\[|\(000\)|Phone:|Fax:|Website:|PURCHASE|VENDOR|SHIP|ITEM|TOTAL|Comment|Template|Invoice|SUBTOTAL|TAX|SHIPPING|^NY,?\s*$|TEMPLATE LAB/i;
+  for(const line of t.split('\n').map(l=>l.trim()).filter(l=>l.length>3)){
+    if(skipLine.test(line)) continue;
+    if(/^[A-Za-z][A-Za-z0-9\s&.,\-]{3,60}$/.test(line)){
+      out.vendorName=line.trim(); hits++; break;
     }
-  });
+  }
 
-  return result.data.text || '';
+  // Item — from line-item table
+  const liM = t.match(/^(\d{5,})\s+(.{5,60}?)\s+(\d+)\s+[\d,]+\.\d{2}/m);
+  if(liM){out.itemDescription=liM[2].trim();hits++;}
+  else {
+    const dM=t.match(/(?:description|item|goods|product)\s*:?\s*([A-Za-z][A-Za-z0-9\s,\-()/]{5,100})/i);
+    if(dM){out.itemDescription=dM[1].trim();hits++;}
+  }
+
+  // Line items
+  const lis=[...t.matchAll(/^(\d{5,})\s+(.{4,60}?)\s+(\d+)\s+([\d,]+\.\d{2})\s*\$/mg)];
+  if(lis.length) out.lineItems = lis.map(m=>`${m[2].trim()} ×${m[3]} @$${m[4]}`).join(' | ');
+
+  // Category
+  out.category = categorise(tl);
+
+  // Notes
+  const parts=[];
+  const shM=t.match(/\b(FEDEX|UPS|DHL|USPS|courier)\b/i); if(shM) parts.push('Shipping: '+shM[0]);
+  const trM=t.match(/CIF|FOB|CFR|EXW|DDP|Cost,?\s*Insurance/i); if(trM) parts.push('Terms: '+trM[0]);
+  if(out.lineItems) parts.push('Items: '+out.lineItems);
+  out.notes = parts.join(' · ') || 'Imported from: '+filename;
+
+  // Confidence
+  out.confidence = Math.round((hits/7)*100);
+  if(!out.poNumber) out.warnings.push('PO number not detected');
+  if(!out.amount)   out.warnings.push('Amount not detected');
+  if(!out.vendorName) out.warnings.push('Vendor name not detected');
+
+  return out;
+}
+
+function showFinalForm(f, filename, rawText, method){
+  const el = document.getElementById('pdf-form');
+  if(!el) return;
+  const confColor = f.confidence>=70?'var(--ok)':f.confidence>=40?'var(--warn)':'var(--err)';
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700">Extracted via <span style="color:var(--accent)">${method}</span></div>
+      <div style="font-size:18px;font-weight:700;color:${confColor}">${f.confidence}% confidence</div>
+    </div>
+    ${f.warnings.length?`<div style="background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--warn)">${f.warnings.map(w=>'⚠ '+w).join('<br>')}</div>`:''}
+    <div class="fc-row">
+      <div class="fg"><label class="fl">Job / PO Number</label><input class="fc" id="ex-id" value="${f.poNumber}"></div>
+      <div class="fg"><label class="fl">PO Date</label><input type="date" class="fc" id="ex-date" value="${f.poDate}"></div>
+    </div>
+    <div class="fc-row">
+      <div class="fg"><label class="fl">Amount</label><input type="number" class="fc" id="ex-amt" value="${f.amount||''}"></div>
+      <div class="fg"><label class="fl">Delivery Date</label><input type="date" class="fc" id="ex-due" value="${f.dueDate}"></div>
+    </div>
+    <div class="fg"><label class="fl">Vendor / Customer</label><input class="fc" id="ex-ven" value="${f.vendorName||''}"></div>
+    <div class="fg"><label class="fl">Item / Description</label><input class="fc" id="ex-item" value="${f.itemDescription||''}"></div>
+    <div class="fc-row">
+      <div class="fg"><label class="fl">Category</label><select class="fc" id="ex-cat">${['Machinery','Electronics','Safety','Furniture','IT','Raw Materials','Other'].map(c=>`<option ${f.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="fg"><label class="fl">Priority</label><select class="fc" id="ex-pri"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+    </div>
+    <div class="fg"><label class="fl">Notes</label><textarea class="fc" id="ex-notes" style="min-height:55px">${f.notes}</textarea></div>
+    ${rawText?`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:11px;color:var(--muted)">▶ Raw extracted text (${rawText.length} chars)</summary><pre style="font-size:10px;background:var(--bg);padding:8px;border-radius:4px;max-height:120px;overflow:auto;white-space:pre-wrap;margin-top:6px">${rawText.slice(0,1500).replace(/</g,'&lt;')}</pre></details>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="document.getElementById('pdf-status').innerHTML='';document.getElementById('pdf-file-inp').value=''">Cancel</button>
+      <button class="btn btn-p" onclick="confirmExtract()"><i class="ti ti-check"></i>Confirm &amp; Import</button>
+    </div>`;
 }
 // ── FALLBACK: raw binary text extraction ──
 function fallbackBinaryExtract(arrayBuffer){
