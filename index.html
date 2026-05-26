@@ -1821,7 +1821,8 @@ async function processPDF(file){
   let rawText = '';
   try {
     if(typeof pdfjsLib === 'undefined') throw new Error('PDF.js not loaded');
-    const pdf  = await pdfjsLib.getDocument({data: new Uint8Array(buf)}).promise;
+    const pdfData = new Uint8Array(buf.slice(0)); // slice() copies so buf stays usable
+    const pdf  = await pdfjsLib.getDocument({data: pdfData}).promise;
     log(`PDF loaded: ${pdf.numPages} page(s)`,'ok');
     for(let i=1;i<=Math.min(pdf.numPages,5);i++){
       const page    = await pdf.getPage(i);
@@ -1850,7 +1851,7 @@ async function processPDF(file){
     log('Starting Tesseract.js OCR…','info');
     try {
       if(typeof Tesseract === 'undefined') throw new Error('Tesseract.js not loaded — check CDN');
-      const pdf2  = await pdfjsLib.getDocument({data: new Uint8Array(buf)}).promise;
+      const pdf2  = await pdfjsLib.getDocument({data: new Uint8Array(buf.slice(0))}).promise;
       const page  = await pdf2.getPage(1);
       const vp    = page.getViewport({scale:2.5});
       const cv    = document.createElement('canvas');
@@ -1932,7 +1933,10 @@ function extractAllFields(text, filename){
 
   // Amount — try multiple strategies
   // 1) TOTAL\n amount$
-  const totM = t.match(/\bTOTAL\b[\s\S]{0,20}?([\d,]+\.\d{2})\s*\$?/i);
+  // Try all amount strategies in order
+  const totM = t.match(/\bTOTAL\b[\s\S]{0,30}?([\d,]+\.\d{2})\s*\$?/i)
+             || t.match(/([\d,]+\.\d{2})\s*\$\s*$/m)  // amount$ at end of line
+             || t.match(/\$\s*([\d,]+\.\d{2})/);       // $amount
   if(totM){ const n=parseFloat(totM[1].replace(/,/g,'')); if(n>0){out.amount=n;hits++;} }
   // 2) Largest number$
   if(!out.amount){
@@ -1951,7 +1955,7 @@ function extractAllFields(text, filename){
   }
 
   // Vendor — skip template placeholders, take first real name-like line
-  const skipLine = /\[|\(000\)|Phone:|Fax:|Website:|PURCHASE|VENDOR|SHIP|ITEM|TOTAL|Comment|Template|Invoice|SUBTOTAL|TAX|SHIPPING|^NY,?\s*$|TEMPLATE LAB/i;
+  const skipLine = /\[|\(000\)|Phone:|Fax:|Website:|PURCHASE|VENDOR|SHIP|ITEM|TOTAL|Comment|Template|Invoice|SUBTOTAL|TAX|SHIPPING|TEMPLATE LAB|^(DATE|PO|QTY|NY,?|DESCRIPTION|UNIT|PRICE|TERMS|METHOD|DELIVERY|FEDEX|UPS|DHL|Cost,)$/i;
   for(const line of t.split('\n').map(l=>l.trim()).filter(l=>l.length>3)){
     if(skipLine.test(line)) continue;
     if(/^[A-Za-z][A-Za-z0-9\s&.,\-]{3,60}$/.test(line)){
