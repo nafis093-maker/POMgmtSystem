@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 <script>
   if(typeof pdfjsLib!=='undefined'){
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
@@ -1783,8 +1784,8 @@ async function extractTextFromPDF(arrayBuffer){
 
 // ── MAIN PROCESS FUNCTION ──
 async function processPDF(file){
-  const statusEl=document.getElementById('pdf-status');
-  const sizeKB=(file.size/1024).toFixed(0);
+  const statusEl = document.getElementById('pdf-status');
+  const sizeKB   = (file.size/1024).toFixed(0);
 
   statusEl.innerHTML=`
   <div class="pdf-progress" style="margin-top:16px">
@@ -1796,60 +1797,114 @@ async function processPDF(file){
       </div>
     </div>
     <div class="prog-steps">
-      <div class="prog-step active" id="ps1"><i class="ti ti-loader spin"></i>Loading PDF.js engine…</div>
+      <div class="prog-step active" id="ps1"><i class="ti ti-loader spin"></i>Loading PDF…</div>
       <div class="prog-step" id="ps2"><i class="ti ti-clock"></i>Extracting text layer…</div>
-      <div class="prog-step" id="ps3"><i class="ti ti-clock"></i>Running pattern recognition…</div>
-      <div class="prog-step" id="ps4"><i class="ti ti-clock"></i>Scoring &amp; validating fields…</div>
-      <div class="prog-step" id="ps5"><i class="ti ti-clock"></i>Preparing review form…</div>
+      <div class="prog-step" id="ps3"><i class="ti ti-clock"></i>Checking if OCR needed…</div>
+      <div class="prog-step" id="ps4"><i class="ti ti-clock"></i>Running pattern recognition…</div>
+      <div class="prog-step" id="ps5"><i class="ti ti-clock"></i>Preparing form…</div>
     </div>
   </div>`;
 
-  await sleep(300);
-
-  // Step 1: Read buffer
+  await sleep(200);
   let arrayBuffer;
   try {
     arrayBuffer = await file.arrayBuffer();
-    stepDone('ps1','ps2','PDF loaded into memory ('+sizeKB+' KB)');
-  } catch(e) {
-    stepError('ps1','Could not read file: '+e.message); return;
-  }
+    stepDone('ps1','ps2','PDF loaded ('+sizeKB+' KB)');
+  } catch(e) { stepError('ps1','Could not read file: '+e.message); return; }
 
-  await sleep(200);
+  await sleep(150);
 
-  // Step 2: Extract text via PDF.js
+  // ── Step 1: Try PDF.js text extraction ──
   let rawText = '';
   let pageCount = 1;
-  let extractMethod = 'PDF.js';
+  let usedOCR = false;
+  let extractMethod = 'PDF.js text layer';
+
   try {
     rawText = await extractTextFromPDF(arrayBuffer);
     pageCount = (rawText.match(/PAGE BREAK/g)||[]).length + 1;
-    stepDone('ps2','ps3',`Text extracted — ${rawText.length} chars across ${pageCount} page(s)`);
   } catch(e) {
-    // Fallback: raw binary scan
-    extractMethod = 'Binary scan (fallback)';
     rawText = fallbackBinaryExtract(arrayBuffer);
-    stepDone('ps2','ps3','Text extracted via fallback binary scan ('+rawText.length+' chars)');
+    extractMethod = 'binary scan (fallback)';
   }
 
-  await sleep(300);
+  // ── Step 2: Detect if text layer is just labels (image-based PDF) ──
+  // Label-only PDFs have < 30 meaningful words and mostly header keywords
+  const LABEL_WORDS = ['PURCHASE ORDER','VENDOR','SHIP TO','ITEM #','DESCRIPTION',
+    'QTY','UNIT PRICE','TOTAL','SUBTOTAL','TAX','SHIPPING','DATE','PO #',
+    'SHIPPING TERMS','SHIPPING METHOD','DELIVERY DATE','COMMENTS'];
+  const textLines   = rawText.split('\n').map(l=>l.trim()).filter(l=>l.length>1);
+  const labelCount  = textLines.filter(l=>LABEL_WORDS.some(lw=>l.toUpperCase().includes(lw))).length;
+  const isLabelOnly = textLines.length < 30 && labelCount / Math.max(textLines.length,1) > 0.35;
 
-  // Step 3: Pattern recognition
-  const patterns = runPatternRecognition(rawText, file.name);
-  stepDone('ps3','ps4',`Recognised ${patterns.fieldCount} fields via ${patterns.method}`);
+  stepDone('ps2','ps3', isLabelOnly
+    ? `Text layer has only ${textLines.length} lines (mostly labels) — needs OCR`
+    : `Text extracted: ${rawText.length} chars across ${pageCount} page(s)`);
+  await sleep(200);
 
-  await sleep(300);
-
-  // Step 4: Score & validate
-  const scored = scoreAndValidate(patterns, rawText, file.name);
-  stepDone('ps4','ps5',`Confidence: ${scored.confidence}% · ${scored.warnings.length} warnings`);
+  // ── Step 3: If label-only, run Tesseract.js OCR on rendered PDF page ──
+  if(isLabelOnly){
+    document.getElementById('ps3').innerHTML =
+      '<i class="ti ti-loader spin"></i>Running OCR on PDF image (this takes 5-15 seconds)…';
+    try {
+      rawText = await runOCRonPDF(arrayBuffer);
+      usedOCR = true;
+      extractMethod = 'Tesseract.js OCR';
+      stepDone('ps3','ps4',`OCR complete: ${rawText.length} chars extracted`);
+    } catch(e) {
+      stepDone('ps3','ps4','OCR failed ('+e.message+') — using text layer');
+    }
+  } else {
+    stepDone('ps3','ps4','Text layer has sufficient content — skipping OCR');
+  }
 
   await sleep(200);
 
-  stepDone('ps5',null,'Form ready — review and confirm');
+  // ── Step 4: Pattern recognition ──
+  const patterns = runPatternRecognition(rawText, file.name);
+  patterns.isLabelOnly = isLabelOnly && !usedOCR;
+  stepDone('ps4','ps5',`Recognised ${patterns.fieldCount} fields via ${extractMethod}`);
+  await sleep(200);
+
+  // ── Step 5: Score & validate ──
+  const scored = scoreAndValidate(patterns, rawText, file.name);
+  stepDone('ps5', null, `Confidence: ${scored.confidence}% · ${scored.warnings.length} warnings`);
+
   showExtractedForm(scored, file.name, rawText, extractMethod);
 }
 
+// ── OCR using Tesseract.js: render PDF page to canvas → OCR ──
+async function runOCRonPDF(arrayBuffer){
+  if(typeof pdfjsLib === 'undefined') throw new Error('PDF.js not loaded');
+
+  // Render page 1 to canvas
+  const pdf    = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  const page   = await pdf.getPage(1);
+  const scale  = 2.0; // higher = better OCR accuracy
+  const viewport = page.getViewport({scale});
+
+  const canvas  = document.createElement('canvas');
+  canvas.width  = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+
+  await page.render({canvasContext: ctx, viewport}).promise;
+
+  // Run Tesseract.js OCR on canvas
+  if(typeof Tesseract === 'undefined') throw new Error('Tesseract.js not loaded');
+
+  const result = await Tesseract.recognize(canvas, 'eng', {
+    logger: m => {
+      if(m.status === 'recognizing text'){
+        const pct = Math.round((m.progress||0)*100);
+        const el  = document.getElementById('ps3');
+        if(el) el.innerHTML = `<i class="ti ti-loader spin"></i>OCR progress: ${pct}%…`;
+      }
+    }
+  });
+
+  return result.data.text || '';
+}
 // ── FALLBACK: raw binary text extraction ──
 function fallbackBinaryExtract(arrayBuffer){
   try {
