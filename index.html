@@ -1885,126 +1885,183 @@ function runPatternRecognition(text, filename){
   let fieldCount = 0;
   const result = {};
 
+  // ── Detect label-only PDF (template with no filled values in text layer) ──
+  // If text only has header labels and no real data, flag it
+  const labelOnlyWords = ['PURCHASE ORDER','VENDOR','SHIP TO','ITEM #','DESCRIPTION',
+    'QTY','UNIT PRICE','TOTAL','SUBTOTAL','TAX','SHIPPING','DATE','PO #',
+    'SHIPPING TERMS','SHIPPING METHOD','DELIVERY DATE'];
+  const wordCount = lines.length;
+  const labelCount = lines.filter(l=>labelOnlyWords.some(lw=>l.toUpperCase().includes(lw))).length;
+  result.isLabelOnly = wordCount < 25 && labelCount / Math.max(wordCount,1) > 0.4;
+
   // ── PO NUMBER ──
+  // Match: "PO # 110000" or "PO# 110000" or "PO-2024-001" or "110000" after PO
   const poPatterns = [
-    /\bP\.?O\.?\s*(?:NO\.?|NUMBER|#|NUM\.?)?\s*:?\s*([A-Z]{0,4}[-/]?\d{4,}[-/]?\d{0,6})\b/i,
-    /\bPURCHASE\s+ORDER\s+(?:NO\.?|NUMBER|#)?\s*:?\s*([A-Z]{0,4}[-/]?\d{4,})\b/i,
-    /\bORDER\s+(?:NO\.?|NUMBER|REF\.?)\s*:?\s*([A-Z]{0,4}[-/]?\d{4,})\b/i,
-    /\b(PO[-/]?\d{4,})\b/i,
-    /\b([A-Z]{2,4}[-/]\d{4}[-/]\d{2,6})\b/,
+    /P\.?O\.?\s*#?\s*:?\s*([A-Z0-9][A-Z0-9\-\/]{3,20})/i,
+    /(?:purchase\s+order|order)\s+(?:no\.?|number|#)\s*:?\s*([A-Z0-9\-\/]{3,20})/i,
+    /\b(PO[-\/]?\d{4,}[-\/]?\d{0,6})\b/i,
+    /\b([A-Z]{0,3}\d{5,10})\b/,
   ];
   for(const pat of poPatterns){
     const m = t.match(pat);
-    if(m&&m[1]&&m[1].length>=4){ result.poNumber=m[1].replace(/\s+/g,'').toUpperCase(); fieldCount++; break; }
-  }
-  // fallback: find any number from filename
-  if(!result.poNumber){
-    const fn = filename.match(/(\d{4,})/);
-    if(fn) result.poNumber=`PO-${new Date().getFullYear()}-${fn[1].slice(-4).padStart(4,'0')}`;
-    else result.poNumber=`PO-${new Date().getFullYear()}-${String(50+jobs.length).padStart(4,'0')}`;
-  }
-
-  // ── DATES ──
-  // Collect all date-like strings in text
-  const dateStrings = [];
-  const dPatterns = [
-    /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/g,
-    /(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/g,
-    /(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s]+(\d{4})/gi,
-    /(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})[,\s]+(\d{4})/gi,
-  ];
-  for(const dp of dPatterns){
-    let m;
-    while((m=dp.exec(t))!==null) dateStrings.push({raw:m[0],index:m.index});
-  }
-
-  // Label-based date detection
-  const poDateMatch = findLabeledDate(t, /(?:po\s*date|order\s*date|date\s*of\s*(?:order|issue)|issued?(?:\s*on)?)\s*:?\s*/i, dateStrings);
-  const dueDateMatch = findLabeledDate(t, /(?:due\s*date|delivery\s*date|required\s*by|deliver(?:y)?\s*(?:on|by)|valid\s*(?:till|until)|expiry\s*date)\s*:?\s*/i, dateStrings);
-
-  result.poDate = normaliseDate(poDateMatch || (dateStrings[0]?.raw)) || new Date().toISOString().slice(0,10);
-  result.dueDate = normaliseDate(dueDateMatch || (dateStrings[1]?.raw)) || new Date(Date.now()+45*86400000).toISOString().slice(0,10);
-  if(result.poDate) fieldCount++;
-  if(result.dueDate) fieldCount++;
-
-  // ── AMOUNT ──
-  const amtPatterns = [
-    /(?:grand\s+total|total\s+amount|net\s+total|invoice\s+total|order\s+total|total\s+value)\s*:?\s*(?:bdt|tk\.?|usd|\$|৳)?\s*([0-9,]+(?:\.\d{1,2})?)/i,
-    /(?:total|amount|value|sum)\s*:?\s*(?:bdt|tk\.?|usd|\$|৳)?\s*([0-9,]+(?:\.\d{1,2})?)/i,
-    /(?:bdt|tk\.?|৳)\s*([0-9,]+(?:\.\d{1,2})?)/i,
-    /([0-9]{4,}(?:,[0-9]{3})*(?:\.\d{1,2})?)/,
-  ];
-  for(const ap of amtPatterns){
-    const m = t.match(ap);
-    if(m&&m[1]){
-      const n = parseFloat(m[1].replace(/,/g,''));
-      if(n>100 && n<999999999){ result.amount=Math.round(n); fieldCount++; break; }
-    }
-  }
-  if(!result.amount) result.amount=0;
-
-  // ── VENDOR ──
-  const vendorPatterns = [
-    /(?:vendor|supplier|from|sold\s+by|supplied\s+by|party|company\s+name)\s*:?\s*\n?\s*([A-Z][A-Za-z0-9\s&.,\-()]{2,50}(?:Ltd\.?|LLC|Inc\.?|Corp\.?|Co\.?|Limited|Pvt\.?)?)/i,
-    /^([A-Z][A-Za-z0-9\s&.,]{3,40}(?:Ltd\.?|LLC|Inc\.?|Corp\.?|Co\.?|Limited|Pvt\.?|Industries|Trading|Enterprise|Solutions|Supplies))/m,
-    /(?:from|by)\s*:?\s*([A-Z][A-Za-z0-9\s&.,\-]{3,50})/i,
-  ];
-  for(const vp of vendorPatterns){
-    const m = t.match(vp);
-    if(m&&m[1]&&m[1].trim().length>3){
-      result.vendorName=m[1].trim().replace(/\s+/g,' ');
-      // Remove trailing punctuation
-      result.vendorName=result.vendorName.replace(/[,:;\s]+$/,'');
-      if(result.vendorName.length>3){ fieldCount++; break; }
-    }
-  }
-
-  // ── ITEM DESCRIPTION ──
-  const itemPatterns = [
-    /(?:item\s*description|description\s*of\s*(?:goods|work|service|item)|goods\s*(?:&|and)\s*services|particulars|items?\s*ordered)\s*:?\s*\n?\s*([A-Za-z][A-Za-z0-9\s,\-()./]{5,120})/i,
-    /(?:item|product|material|goods|supply|purchase\s*of|procurement\s*of)\s*:?\s*([A-Za-z][A-Za-z0-9\s,\-()/]{5,100})/i,
-    /(?:qty|quantity)\s*\d+\s+([A-Za-z][A-Za-z0-9\s,\-()]{5,80})/i,
-  ];
-  for(const ip of itemPatterns){
-    const m = t.match(ip);
-    if(m&&m[1]&&m[1].trim().length>4){
-      result.itemDescription=m[1].trim().replace(/\s+/g,' ').replace(/[,:;\s]+$/,'');
+    if(m&&m[1]&&m[1].length>=4&&!/^(DATE|TOTAL|ITEM|DESC)/i.test(m[1])){
+      result.poNumber = m[1].replace(/\s+/g,'').toUpperCase();
       fieldCount++; break;
     }
   }
-  // fallback: find longest capitalised phrase near a number
-  if(!result.itemDescription){
-    const caps = t.match(/[A-Z][A-Za-z\s]{8,60}(?:Machine|Equipment|System|Panel|Kit|Set|Unit|Batch|Parts?|Cable|Motor|Pump|Press|Conveyor|Sensor|Controller|Board|Device|Tool|Instrument)/g);
-    if(caps&&caps.length) result.itemDescription=caps[0].trim();
+  if(!result.poNumber){
+    const fn = filename.match(/(\d{4,})/);
+    result.poNumber = fn ? `PO-${new Date().getFullYear()}-${fn[1].slice(-4).padStart(4,'0')}`
+                        : `PO-${new Date().getFullYear()}-${String(50+jobs.length).padStart(4,'0')}`;
   }
+
+  // ── DATES ──
+  // Collect all date-like strings — handles DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, "23 Apr 2020"
+  const allDates = [];
+  const dPatterns = [
+    /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/g,
+    /(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/g,
+    /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,\s]+(\d{4})/gi,
+    /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})[,\s]+(\d{4})/gi,
+  ];
+  for(const dp of dPatterns){ let m; while((m=dp.exec(t))!==null) allDates.push({raw:m[0],idx:m.index}); }
+
+  // Label-proximate date detection
+  const poDateRaw  = findNearestDate(t,'(?:date|order\\s*date|issued)',allDates);
+  const dueDateRaw = findNearestDate(t,'(?:delivery\\s*date|due\\s*date|required\\s*by|deliver\\s*by)',allDates);
+
+  result.poDate  = normaliseDate(poDateRaw||(allDates[0]?.raw)) || new Date().toISOString().slice(0,10);
+  result.dueDate = normaliseDate(dueDateRaw||(allDates[1]?.raw)) || new Date(Date.now()+45*86400000).toISOString().slice(0,10);
+  if(result.poDate) fieldCount++;
+  if(result.dueDate) fieldCount++;
+
+  // ── AMOUNT — multiple strategies ──
+  // Strategy A: Grand total / order total label
+  const amtA = [
+    /(?:grand\s+total|order\s+total|total\s+amount|net\s+total|invoice\s+total)\s*[\$\$৳]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+    // "TOTAL  1,357.50$"  or  "TOTAL  1,357.50"
+    /\bTOTAL\b(?!.*\bSUBTOTAL\b)\s+[\$\$৳]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+    /([0-9,]+(?:\.[0-9]{2})?)\s*\$\s*$/m,
+    /(?:bdt|tk\.?|৳|\$)\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+  ];
+  for(const ap of amtA){
+    const m = t.match(ap);
+    if(m&&m[1]){
+      const n = parseFloat(m[1].replace(/,/g,''));
+      if(n>0&&n<999999999){ result.amount=Math.round(n*100)/100; fieldCount++; break; }
+    }
+  }
+  // Strategy B: find all dollar amounts, take the largest (likely grand total)
+  if(!result.amount){
+    const allAmts = [...t.matchAll(/([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)\s*\$/g)]
+      .map(m=>parseFloat(m[1].replace(/,/g,'')))
+      .filter(n=>n>0);
+    if(allAmts.length) { result.amount = Math.max(...allAmts); fieldCount++; }
+  }
+  if(!result.amount) result.amount = 0;
+
+  // ── VENDOR NAME ──
+  const vendorPatterns = [
+    /(?:vendor|supplier|from|sold\s+by|company\s+name)\s*[:\n]\s*\n?\s*([A-Z][A-Za-z0-9\s&.,\-]{2,50}(?:Ltd\.?|LLC|Inc\.?|Corp\.?|Co\.?|Limited|Pvt\.?|Industries|Solutions|Trading)?)/i,
+    /^([A-Z][A-Za-z0-9\s&.,]{3,40}(?:Ltd\.?|LLC|Inc\.?|Corp\.?|Co\.?|Limited|Pvt\.?|Industries|Trading|Enterprise|Supplies))/m,
+    /(?:from|bill\s+to|vendor)\s*:?\s*([A-Z][A-Za-z0-9\s&.,\-]{3,50})/i,
+  ];
+  for(const vp of vendorPatterns){
+    const m = t.match(vp);
+    if(m&&m[1]){
+      const name = m[1].trim().replace(/\s+/g,' ').replace(/[,:;\s]+$/,'');
+      if(name.length>3&&!/^(PURCHASE|VENDOR|SHIP|DATE|PO|ITEM|TOTAL)/i.test(name)){
+        result.vendorName = name; fieldCount++; break;
+      }
+    }
+  }
+
+  // ── ITEM DESCRIPTION — improved for line-item tables ──
+  // Try to find the first real line item description
+  // Pattern: number (item#)  text (description)  number (qty)  price
+  const lineItemPat = /^\s*\d{5,}\s+(.{5,60}?)\s+\d+\s+[\d,]+\.?\d*/m;
+  const li = t.match(lineItemPat);
+  if(li&&li[1]){
+    result.itemDescription = li[1].trim();
+    fieldCount++;
+  } else {
+    // Fallback: description label followed by text
+    const descPats = [
+      /(?:description|item|goods|product|service|material)\s*:?\s*\n?\s*([A-Za-z][A-Za-z0-9\s,\-()/]{5,100})/i,
+      /(?:item|product|material|goods)\s+#?\d*\s*[:\-]\s*([A-Za-z][A-Za-z0-9\s,\-()/]{5,80})/i,
+    ];
+    for(const dp of descPats){
+      const m = t.match(dp);
+      if(m&&m[1]&&m[1].trim().length>4){
+        result.itemDescription = m[1].trim().replace(/\s+/g,' ');
+        fieldCount++; break;
+      }
+    }
+  }
+
+  // ── MULTIPLE LINE ITEMS ──
+  // Capture all line items for notes
+  const lineItems = [];
+  const liAll = [...t.matchAll(/(\d{5,})\s+(.{4,60}?)\s+(\d+)\s+([\d,]+\.?\d*)\s*\$?\s+([\d,]+\.?\d*)/gm)];
+  liAll.forEach(m => lineItems.push(`${m[2].trim()} x${m[3]} @ $${m[4]}`));
+  if(lineItems.length) result.lineItemsSummary = lineItems.join(' | ');
 
   // ── CATEGORY ──
   result.category = categorise(tl);
   if(result.category!=='Other') fieldCount++;
 
-  // ── CONTACT / ADDRESS hints ──
-  const emailMatch = t.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
-  if(emailMatch) result.vendorEmail=emailMatch[0];
-  const phoneMatch = t.match(/(?:\+?88)?01[3-9]\d{8}/);
-  if(phoneMatch) result.vendorPhone=phoneMatch[0];
+  // ── SHIPPING METHOD as note ──
+  const shipMethod = t.match(/(?:fedex|ups|dhl|usps|courier|air\s+freight|sea\s+freight)/i);
+  const shipTerms  = t.match(/(?:CIF|FOB|CFR|EXW|DDP|cost,\s*insurance|freight)/i);
 
   // ── NOTES ──
-  const notesMatch = t.match(/(?:note|remark|comment|instruction|term|condition)\s*s?\s*:?\s*\n?\s*([A-Za-z][^\n]{10,200})/i);
-  if(notesMatch) result.notes=notesMatch[1].trim().slice(0,200);
-  else result.notes=`Imported from PDF: ${filename}`;
+  const noteLines = [];
+  if(shipMethod) noteLines.push('Shipping: '+shipMethod[0]);
+  if(shipTerms)  noteLines.push('Terms: '+shipTerms[0]);
+  if(result.lineItemsSummary) noteLines.push('Items: '+result.lineItemsSummary);
+  const commentMatch = t.match(/(?:comment|special\s+instruction|remark|note)\s*s?\s*[:\n]\s*([A-Za-z][^\n]{10,200})/i);
+  if(commentMatch) noteLines.push(commentMatch[1].trim().slice(0,150));
+  result.notes = noteLines.join(' · ') || ('Imported from: '+filename);
 
   result.fieldCount = fieldCount;
   result.method = 'regex+NLP (local)';
   return result;
 }
-
 // ── HELPERS for pattern engine ──
+function findNearestDate(text, labelPattern, allDates){
+  try {
+    const lp = new RegExp(labelPattern, 'i');
+    const lm = text.match(lp);
+    if(!lm) return null;
+    const labelPos = lm.index + lm[0].length;
+    // Find the date closest (by char position) after the label
+    let best = null, bestDist = 999;
+    for(const d of allDates){
+      const dist = d.idx - labelPos;
+      if(dist >= 0 && dist < bestDist){ bestDist = dist; best = d.raw; }
+    }
+    return best;
+  } catch(e) { return null; }
+}
 function findLabeledDate(text, labelRegex, allDates){
-  const m = text.match(new RegExp(labelRegex.source + '([\\d\\/\\-\\.\\s,A-Za-z]{6,30})'));
-  if(m&&m[1]) return m[1].trim();
+  // Find a date that appears close after a label
+  try {
+    const pattern = new RegExp(labelRegex.source + '[\\s:]*([\\d\\/\\-\.\\s,A-Za-z]{6,30})', 'i');
+    const m = text.match(pattern);
+    if(m && m[1]) return m[1].trim();
+  } catch(e) {}
+  // Positional: find label then nearest date within 80 chars
+  try {
+    const labelPat = new RegExp(labelRegex.source, 'i');
+    const lm = text.match(labelPat);
+    if(lm) {
+      const after = text.slice(lm.index + lm[0].length, lm.index + lm[0].length + 80);
+      const dm = after.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})|(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+      if(dm) return dm[0];
+    }
+  } catch(e) {}
   return null;
 }
-
 function normaliseDate(str){
   if(!str) return null;
   str=str.trim().replace(/\s+/g,' ');
