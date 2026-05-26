@@ -1702,7 +1702,49 @@ function downloadCSV(csv,filename){
 // ═══════════════════════════════════════
 //  IMPORT — PDF & EMAIL
 // ═══════════════════════════════════════
-function renderImport(){ return renderUpload(); }
+function renderImport(){
+  const gmOk = integrations.gmail.connected;
+  return `<div style="max-width:640px">
+    <div class="alert alert-info" style="margin-bottom:16px">
+      <i class="ti ti-cpu"></i>
+      <div><strong>100% Local PDF Extraction.</strong> All processing runs in your browser — no data sent to any server. Uses PDF.js + smart pattern recognition.</div>
+    </div>
+    <div class="upload-zone" id="upz"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
+      <input type="file" accept=".pdf" onchange="handleFileSelect(event)" id="pdf-file-inp">
+      <i class="ti ti-file-type-pdf" style="color:var(--err)"></i>
+      <h3>Drop a PO/Job PDF here or click to browse</h3>
+      <p>Runs entirely in your browser · No internet required for extraction</p>
+    </div>
+    <div id="pdf-status"></div>
+    <div class="card" style="margin-top:18px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:7px">
+        <i class="ti ti-brand-gmail" style="color:#EA4335"></i>Gmail Auto-Import
+        <span class="int-badge ${gmOk?'connected-badge':'not-connected-badge'}">${gmOk?'✓ '+integrations.gmail.userEmail:'Not Connected'}</span>
+      </div>
+      ${gmOk
+        ? `<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Scan your inbox for PO emails and import PDF attachments.</p>
+           <div style="display:flex;gap:8px"><button class="btn btn-sm btn-p" onclick="nav('integrations');setTimeout(()=>scanGmailInbox(),400)"><i class="ti ti-refresh"></i>Scan Inbox</button><button class="btn btn-sm" onclick="nav('integrations')"><i class="ti ti-settings"></i>Settings</button></div>`
+        : `<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Connect Gmail to auto-detect PO emails and import PDFs.</p>
+           <button class="btn btn-sm btn-p" onclick="nav('integrations')"><i class="ti ti-plug"></i>Connect Gmail</button>`
+      }
+    </div>
+  </div>`;
+}
+
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('upz').classList.remove('drag');
+  const file=e.dataTransfer.files[0];
+  if(file&&file.type==='application/pdf') processPDF(file);
+  else showNotif('Invalid File','Please drop a PDF file.','warn');
+}
+function handleFileSelect(e){
+  const file=e.target.files[0];
+  if(file) processPDF(file);
+}
 function handleDrop(e){
   e.preventDefault();
   document.getElementById('upz').classList.remove('drag');
@@ -1865,7 +1907,7 @@ function runPatternRecognition(text, filename){
   if(!result.poNumber){
     const fn = filename.match(/(\d{4,})/);
     if(fn) result.poNumber=`PO-${new Date().getFullYear()}-${fn[1].slice(-4).padStart(4,'0')}`;
-    else result.poNumber=`PO-${new Date().getFullYear()}-${String(50+pos.length).padStart(4,'0')}`;
+    else result.poNumber=`PO-${new Date().getFullYear()}-${String(50+jobs.length).padStart(4,'0')}`;
   }
 
   // ── DATES ──
