@@ -1058,16 +1058,10 @@ function showNotif(title,body,type='info'){
   p._t=setTimeout(()=>p.classList.remove('show'),4500);
 }
 
-  const el=document.getElementById('clock');
-  if(el) el.textContent=new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-},1000);
 
 // ═══════════════════════════════════════════════════
 //  NAV
 // ═══════════════════════════════════════════════════
-;
-  document.getElementById('main').innerHTML=(fn[curView]||renderDash)();
-}
 
 // ═══════════════════════════════════════════════════
 //  DASHBOARD
