@@ -2149,53 +2149,68 @@ function stepError(id,msg){
 
 function showExtractedForm(ex, filename, rawText, method){
   const statusEl=document.getElementById('pdf-status');
-  const confidenceColor = ex.confidence>=70?'var(--ok)':ex.confidence>=40?'var(--warn)':'var(--err)';
-  const warningsHtml = ex.warnings?.length?`
+  const confColor = ex.confidence>=70?'var(--ok)':ex.confidence>=40?'var(--warn)':'var(--err)';
+
+  // Special warning for image-based / label-only PDFs
+  const imageWarning = ex.isLabelOnly ? `
+    <div class="alert alert-warn" style="margin-bottom:14px">
+      <i class="ti ti-photo-scan"></i>
+      <div>
+        <strong>Image-based PDF detected.</strong> This PDF stores values as images, not selectable text.
+        The text layer only contains labels (DATE, VENDOR, etc.) without the actual filled values.<br>
+        <span style="font-size:12px;margin-top:4px;display:block">
+          ℹ️ For best results: open the PDF, copy the values, and paste them into the fields below.
+          We've pre-filled what could be extracted.
+        </span>
+      </div>
+    </div>` : '';
+
+  const warningsHtml = ex.warnings?.length ? `
     <div style="background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:var(--r);padding:10px 12px;margin-bottom:14px;font-size:12px">
-      <div style="font-weight:700;color:var(--warn);margin-bottom:4px"><i class="ti ti-alert-triangle"></i> ${ex.warnings.length} field(s) need attention:</div>
+      <div style="font-weight:700;color:var(--warn);margin-bottom:4px"><i class="ti ti-alert-triangle"></i> ${ex.warnings.length} field(s) to verify:</div>
       ${ex.warnings.map(w=>`<div style="color:var(--warn);margin-top:3px">• ${w}</div>`).join('')}
-    </div>`:'';
+    </div>` : '';
 
   statusEl.innerHTML=`<div class="card" style="margin-top:16px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
       <i class="ti ti-cpu" style="color:var(--ok);font-size:18px"></i>
       <div style="flex:1">
-        <div style="font-size:13px;font-weight:700">Local Extraction Complete — Review &amp; Confirm</div>
-        <div style="font-size:11px;color:var(--muted)">From: <strong>${filename}</strong> · Method: ${method||'PDF.js+regex'} · Text: ${ex.rawTextLength||0} chars</div>
+        <div style="font-size:13px;font-weight:700">Review &amp; Confirm Extracted Fields</div>
+        <div style="font-size:11px;color:var(--muted)">File: <strong>${filename}</strong> · Method: ${method||'PDF.js+regex'} · ${ex.rawTextLength||0} chars extracted</div>
       </div>
       <div style="text-align:center;flex-shrink:0">
-        <div style="font-size:22px;font-weight:700;color:${confidenceColor}">${ex.confidence}%</div>
+        <div style="font-size:22px;font-weight:700;color:${confColor}">${ex.confidence}%</div>
         <div style="font-size:10px;color:var(--muted)">confidence</div>
       </div>
     </div>
+    ${imageWarning}
     ${warningsHtml}
     <div class="fc-row">
-      <div class="fg"><label class="fl">PO Number</label><input class="fc" id="ex-id" value="${ex.poNumber||''}"></div>
+      <div class="fg"><label class="fl">Job / PO Number</label><input class="fc" id="ex-id" value="${ex.poNumber||''}"></div>
       <div class="fg"><label class="fl">PO Date</label><input type="date" class="fc" id="ex-date" value="${ex.poDate||''}"></div>
     </div>
     <div class="fc-row">
       <div class="fg"><label class="fl">Amount (BDT)</label><input type="number" class="fc" id="ex-amt" value="${ex.amount||''}"></div>
-      <div class="fg"><label class="fl">Due Date</label><input type="date" class="fc" id="ex-due" value="${ex.dueDate||''}"></div>
+      <div class="fg"><label class="fl">Due / Delivery Date</label><input type="date" class="fc" id="ex-due" value="${ex.dueDate||''}"></div>
     </div>
-    <div class="fg"><label class="fl">Vendor Name</label><input class="fc" id="ex-ven" value="${ex.vendorName||''}"></div>
+    <div class="fg"><label class="fl">Vendor / Customer Name</label><input class="fc" id="ex-ven" value="${ex.vendorName||''}"></div>
     <div class="fg"><label class="fl">Item / Description</label><input class="fc" id="ex-item" value="${ex.itemDescription||''}"></div>
     <div class="fc-row">
-      <div class="fg"><label class="fl">Category</label><select class="fc" id="ex-cat">${['Machinery','Electronics','Safety','Furniture','IT','Raw Materials','Other'].map(c=>`<option ${ex.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
-      <div class="fg"><label class="fl">Priority</label><select class="fc" id="ex-pri"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+      <div class="fg"><label class="fl">Category</label>
+        <select class="fc" id="ex-cat">${['Machinery','Electronics','Safety','Furniture','IT','Raw Materials','Other'].map(c=>`<option ${ex.category===c?'selected':''}>${c}</option>`).join('')}</select>
+      </div>
+      <div class="fg"><label class="fl">Priority</label>
+        <select class="fc" id="ex-pri"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select>
+      </div>
     </div>
     <div class="fg"><label class="fl">Notes</label><textarea class="fc" id="ex-notes" style="min-height:60px">${ex.notes||''}</textarea></div>
-    ${rawText?`<details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none">View extracted raw text (${ex.rawTextLength} chars)</summary><div style="margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:11px;max-height:160px;overflow-y:auto;white-space:pre-wrap;color:var(--muted)">${rawText.slice(0,2000).replace(/</g,'&lt;')}${rawText.length>2000?'\n…(truncated)':''}</div></details>`:''}
+    ${rawText ? `<details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none">▶ View extracted raw text (${ex.rawTextLength} chars)</summary><div style="margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:11px;max-height:160px;overflow-y:auto;white-space:pre-wrap;color:var(--muted)">${rawText.slice(0,2000).replace(/</g,'&lt;')}${rawText.length>2000?'\n…(truncated)':''}</div></details>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="document.getElementById('pdf-status').innerHTML='';document.getElementById('pdf-file-inp').value=''">Cancel</button>
-      <button class="btn btn-p" onclick="confirmExtract()"><i class="ti ti-check"></i>Confirm &amp; Import PO</button>
+      <button class="btn btn-p" onclick="confirmExtract()"><i class="ti ti-check"></i>Confirm &amp; Import Job</button>
     </div>
   </div>`;
 }
-
-// ═══════════════════════════════════════════════════
-//  INTEGRATIONS PAGE
-// ═══════════════════════════════════════════════════
-
 function confirmExtract(){
   const id=document.getElementById('ex-id').value.trim();
   if(!id||jobs.find(j=>j.id===id)) return alert(jobs.find(j=>j.id===id)?'Job ID exists!':'Enter a valid Job ID.');
