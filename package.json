@@ -1,0 +1,15 @@
+{
+  "name": "po-management-server",
+  "version": "1.0.0",
+  "description": "Gmail IMAP proxy for Manufacturing Planning System",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "imap-simple": "^5.1.0",
+    "mailparser": "^3.6.5"
+  }
+}
