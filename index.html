@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
@@ -520,6 +520,12 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
     </div>
     <div class="login-title">Sign in</div>
     <div class="login-sub">Access your procurement dashboard</div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" style="margin-left:auto" aria-label="Toggle light/dark mode">
+          <i class="ti ti-moon icon-dark"></i>
+          <i class="ti ti-sun icon-light"></i>
+        </button>
+      </div>
     <div class="login-err" id="login-err"><i class="ti ti-alert-circle"></i> <span id="login-err-msg">Invalid credentials</span></div>
     <div class="fg"><label class="fl">Email</label><input class="fc" id="l-email" type="email" placeholder="manager@factory.com" value="manager@factory.com"></div>
     <div class="fg"><label class="fl">Password</label><input class="fc" id="l-pass" type="password" placeholder="••••••••" value="admin123" onkeydown="if(event.key==='Enter')doLogin()"></div>
@@ -589,6 +595,10 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
       </div>
       <div class="tb-right" style="display:flex;gap:6px;align-items:center;flex-shrink:0">
         <span id="clock" style="font-size:11px;color:var(--muted);font-family:var(--mono)" class="tb-label"></span>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">
+          <i class="ti ti-moon icon-dark"></i>
+          <i class="ti ti-sun icon-light"></i>
+        </button>
         <button class="btn btn-sm" onclick="nav('import')"><i class="ti ti-upload"></i><span class="tb-label"> Import</span></button>
         <button class="btn btn-p btn-sm" id="new-job-btn" onclick="openNewJobModal()"><i class="ti ti-plus"></i><span class="tb-label"> New Job</span></button>
       </div>
@@ -3291,7 +3301,279 @@ async function sendAIJob(pid){
 
 function closePanel(){document.getElementById('panel').classList.remove('open');document.getElementById('overlay').classList.remove('open');curJob=null;}
 function editCurrentJob(){const j=jobs.find(x=>x.id===curJob);if(j)openEditJob(j.id);}
-function printJob(){const j=jobs.find(x=>x.id===curJob);if(!j)return;const w=window.open('','_blank');w.document.write(`<html><head><title>${j.id}</title><style>body{font-family:sans-serif;padding:40px;max-width:700px;margin:auto}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f5f5f5;font-weight:600;text-align:left}</style></head><body><h1>${j.id} — ${j.product}</h1><p style="color:#888">Printed: ${new Date().toLocaleString()}</p><table><tr><th colspan="2">Job Details</th></tr><tr><td>Customer</td><td>${j.customer}</td></tr><tr><td>Product</td><td>${j.product}</td></tr><tr><td>Quantity</td><td>${j.qty}</td></tr><tr><td>Priority</td><td>${j.priority}</td></tr><tr><td>Factory</td><td>${j.factory}</td></tr><tr><td>Status</td><td>${j.status}</td></tr><tr><td>Delivery Date</td><td>${F.date(j.deliveryDate)}</td></tr><tr><td>Supervisor</td><td>${j.supervisor}</td></tr>${j.remarks?`<tr><td>Remarks</td><td>${j.remarks}</td></tr>`:''}</table></body></html>`);w.print();}
+function printJob(){const j=jobs.find(x=>x.id===curJob);if(!j)return;const w=window.open('','_blank');w.document.write(`<html><head><title>${j.id}</title><style>body{font-family:sans-serif;padding:40px;max-width:700px;margin:auto}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f5f5f5;font-weight:600;text-align:left}
+/* ══════════════════════════════════════════════════════
+   LIGHT THEME — UI/UX Pro Max Industrial Light
+   Colors: #F8FAFC bg, #334155 text, #F97316 orange CTA
+   Per skill: WCAG AA, glass-card opacity ≥ bg-white/80
+   ══════════════════════════════════════════════════════ */
+[data-theme="light"]{
+  --bg:#F8FAFC;
+  --bg2:#F1F5F9;
+  --surface:#FFFFFF;
+  --surface2:#F8FAFC;
+  --surface3:#F1F5F9;
+  --border:#E2E8F0;
+  --border2:#CBD5E1;
+
+  --text:#0F172A;
+  --text2:#334155;
+  --muted:#64748B;
+  --hint:#94A3B8;
+
+  --accent:#F97316;
+  --accent-dim:#EA580C;
+  --accent-glow:rgba(249,115,22,0.12);
+  --accent-light:#FFF7ED;
+  --steel:#475569;
+  --steel-light:#64748B;
+
+  --ok:#059669;--ok-bg:#ECFDF5;--ok-bd:#6EE7B7;
+  --warn:#D97706;--warn-bg:#FFFBEB;--warn-bd:#FCD34D;
+  --err:#DC2626;--err-bg:#FEF2F2;--err-bd:#FCA5A5;
+  --info:#2563EB;--info-bg:#EFF6FF;--info-bd:#BFDBFE;
+  --pur:#7C3AED;--pur-bg:#F5F3FF;--pur-bd:#DDD6FE;
+
+  --sh:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  --shl:0 8px 32px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.06);
+  color-scheme:light;
+}
+
+/* Light mode sidebar */
+[data-theme="light"] .sb{background:#FFFFFF;border-right-color:#E2E8F0}
+[data-theme="light"] .sb-logo{border-bottom-color:#E2E8F0}
+[data-theme="light"] .sb-lbl{color:#94A3B8}
+[data-theme="light"] .sb-item{color:#64748B}
+[data-theme="light"] .sb-item:hover{background:#F8FAFC;color:#334155}
+[data-theme="light"] .sb-item.active{background:rgba(249,115,22,.08);color:#EA580C;border-left-color:#F97316}
+[data-theme="light"] .sb-item i{color:#94A3B8}
+[data-theme="light"] .sb-item.active i{color:#F97316}
+[data-theme="light"] .sb-foot{border-top-color:#E2E8F0}
+[data-theme="light"] .sb-user:hover{background:#F8FAFC}
+[data-theme="light"] .u-name{color:#334155}
+[data-theme="light"] .u-role{color:#64748B}
+[data-theme="light"] .sb-nb.nb-r{background:#DC2626}
+[data-theme="light"] .sb-nb.nb-b{background:#2563EB}
+[data-theme="light"] .sb-nb.nb-a{background:#D97706}
+
+/* Light mode topbar */
+[data-theme="light"] .topbar{background:#FFFFFF;border-bottom-color:#E2E8F0}
+[data-theme="light"] .tb-left h2{color:#0F172A}
+[data-theme="light"] .tb-left p{color:#64748B}
+
+/* Light mode content */
+[data-theme="light"] .content{background:#F8FAFC}
+
+/* Light mode buttons */
+[data-theme="light"] .btn{background:#FFFFFF;border-color:#E2E8F0;color:#334155}
+[data-theme="light"] .btn:hover{background:#F8FAFC;border-color:#CBD5E1;color:#0F172A}
+[data-theme="light"] .btn-p{background:#F97316;color:#fff;border-color:#F97316}
+[data-theme="light"] .btn-p:hover{background:#EA580C;border-color:#EA580C;box-shadow:0 0 16px rgba(249,115,22,.2)}
+
+/* Light mode cards */
+[data-theme="light"] .card{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .stat{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .stat:hover{background:#F8FAFC;border-color:#CBD5E1}
+[data-theme="light"] .stat-val{color:#0F172A}
+[data-theme="light"] .stat-lbl{color:#64748B}
+[data-theme="light"] .stat-sub{color:#94A3B8}
+[data-theme="light"] .ic-o{background:rgba(249,115,22,.1);color:#F97316}
+[data-theme="light"] .ic-b{background:#EFF6FF;color:#2563EB}
+[data-theme="light"] .ic-g{background:#ECFDF5;color:#059669}
+[data-theme="light"] .ic-r{background:#FEF2F2;color:#DC2626}
+[data-theme="light"] .ic-a{background:#FFFBEB;color:#D97706}
+[data-theme="light"] .ic-p{background:#F5F3FF;color:#7C3AED}
+[data-theme="light"] .ic-d{background:#F1F5F9;color:#475569}
+
+/* Light mode tables */
+[data-theme="light"] .tbl-wrap{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .tbl-hdr{background:#FFFFFF;border-bottom-color:#E2E8F0}
+[data-theme="light"] .tbl-title{color:#0F172A}
+[data-theme="light"] .search-box{background:#F8FAFC;border-color:#E2E8F0}
+[data-theme="light"] .search-box input{color:#334155}
+[data-theme="light"] .search-box input::placeholder{color:#94A3B8}
+[data-theme="light"] thead th{background:#F8FAFC;color:#64748B;border-bottom-color:#E2E8F0}
+[data-theme="light"] thead th:hover{background:#F1F5F9;color:#334155}
+[data-theme="light"] tbody tr{border-bottom-color:#F1F5F9}
+[data-theme="light"] tbody tr:hover{background:#FFF7ED}
+[data-theme="light"] td{color:#334155}
+[data-theme="light"] .job-id{color:#EA580C;background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.15)}
+[data-theme="light"] .pag{border-top-color:#E2E8F0;color:#64748B}
+[data-theme="light"] .pag-btn{background:#FFFFFF;border-color:#E2E8F0;color:#334155}
+[data-theme="light"] .pag-btn:hover{background:#F8FAFC}
+[data-theme="light"] .pag-btn.on{background:#F97316;border-color:#F97316;color:#fff}
+
+/* Light mode forms */
+[data-theme="light"] .fc{background:#FFFFFF;border-color:#E2E8F0;color:#0F172A}
+[data-theme="light"] .fc:focus{border-color:#F97316;box-shadow:0 0 0 3px rgba(249,115,22,.1)}
+[data-theme="light"] .fc::placeholder{color:#94A3B8}
+[data-theme="light"] .fl{color:#475569}
+[data-theme="light"] option{background:#FFFFFF;color:#0F172A}
+
+/* Light mode panel */
+[data-theme="light"] .panel{background:#FFFFFF;border-left-color:#E2E8F0}
+[data-theme="light"] .panel-hdr{background:#F8FAFC;border-bottom-color:#E2E8F0}
+[data-theme="light"] .panel-hdr h3{color:#0F172A}
+[data-theme="light"] .ptabs{background:#FFFFFF;border-bottom-color:#E2E8F0}
+[data-theme="light"] .ptab{color:#64748B}
+[data-theme="light"] .ptab:hover{color:#334155}
+[data-theme="light"] .ptab.active{color:#F97316;border-bottom-color:#F97316}
+[data-theme="light"] .panel-foot{background:#F8FAFC;border-top-color:#E2E8F0}
+
+/* Light mode modal */
+[data-theme="light"] .m-ov{background:rgba(15,23,42,.5)}
+[data-theme="light"] .modal{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .m-hdr{background:#F8FAFC;border-bottom-color:#E2E8F0}
+[data-theme="light"] .m-hdr h3{color:#0F172A}
+[data-theme="light"] .m-foot{background:#F8FAFC;border-top-color:#E2E8F0}
+
+/* Light mode kanban */
+[data-theme="light"] .kb-col-hdr{border-color:#E2E8F0}
+[data-theme="light"] .kb-col-body{background:#F8FAFC;border-color:#E2E8F0}
+[data-theme="light"] .kb-card{background:#FFFFFF;border-color:#E2E8F0;border-left-color:#E2E8F0}
+[data-theme="light"] .kb-card:hover{background:#F8FAFC;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+[data-theme="light"] .kb-card-title{color:#0F172A}
+[data-theme="light"] .kb-card-cust{color:#64748B}
+[data-theme="light"] .kb-card-id{color:#EA580C}
+[data-theme="light"] .kb-count{background:#F1F5F9;color:#64748B;border-color:#E2E8F0}
+
+/* Light mode gantt */
+[data-theme="light"] .gantt-table th{background:#F8FAFC;border-color:#E2E8F0;color:#64748B}
+[data-theme="light"] .gantt-table td{border-color:#F1F5F9;color:#334155}
+[data-theme="light"] .gantt-table tr:hover td{background:#FFF7ED}
+
+/* Light mode factory */
+[data-theme="light"] .factory-card{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .factory-hdr{background:#F8FAFC;border-bottom-color:#E2E8F0}
+
+/* Light mode charts */
+[data-theme="light"] .chart-box{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .chart-ttl{color:#0F172A}
+[data-theme="light"] .bc-val{color:#334155}
+[data-theme="light"] .bc-lbl{color:#64748B}
+[data-theme="light"] .leg-item{color:#334155}
+[data-theme="light"] .leg-val{color:#0F172A}
+
+/* Light mode alert cards */
+[data-theme="light"] .alert-card{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .alert-card:hover{background:#F8FAFC}
+[data-theme="light"] .alert-card.sev-critical{background:#FEF2F2}
+[data-theme="light"] .alert-card.sev-high{background:#FFFBEB}
+[data-theme="light"] .alert-card.sev-medium{background:#EFF6FF}
+
+/* Light mode timeline */
+[data-theme="light"] .tl-line{background:#E2E8F0}
+[data-theme="light"] .tl-dot{border-color:#CBD5E1;background:#FFFFFF}
+[data-theme="light"] .tl-dot.done{background:#059669;border-color:#059669;box-shadow:0 0 6px rgba(5,150,105,.2)}
+[data-theme="light"] .tl-dot.act{background:#F97316;border-color:#F97316;box-shadow:0 0 8px rgba(249,115,22,.2)}
+[data-theme="light"] .tl-hd{color:#334155}
+[data-theme="light"] .tl-sub{color:#64748B}
+
+/* Light mode AI chat */
+[data-theme="light"] .ai-box{background:#F8FAFC;border-color:#E2E8F0}
+[data-theme="light"] .ai-hdr{background:#F1F5F9;border-bottom-color:#E2E8F0}
+[data-theme="light"] .ai-msgs{background:#FFFFFF}
+[data-theme="light"] .ai-msg.bot{background:#F8FAFC;border-color:#E2E8F0;color:#334155}
+[data-theme="light"] .ai-msg.usr{background:rgba(249,115,22,.06);border-color:rgba(249,115,22,.2);color:#0F172A}
+[data-theme="light"] .ai-foot{background:#F1F5F9;border-top-color:#E2E8F0}
+[data-theme="light"] .ai-foot input{background:#FFFFFF;border-color:#E2E8F0;color:#0F172A}
+[data-theme="light"] .ai-foot input:focus{border-color:#F97316}
+[data-theme="light"] .ai-send{background:#F97316}
+[data-theme="light"] .ai-send:hover{background:#EA580C;box-shadow:0 0 12px rgba(249,115,22,.2)}
+
+/* Light mode integrations */
+[data-theme="light"] .integration-card{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .int-header{background:#F8FAFC;border-bottom-color:#E2E8F0}
+[data-theme="light"] .int-title{color:#0F172A}
+
+/* Light mode admin */
+[data-theme="light"] .admin-nav{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .admin-nav-lbl{background:#F8FAFC;border-bottom-color:#E2E8F0;color:#64748B}
+[data-theme="light"] .admin-ni{color:#64748B;border-bottom-color:#F1F5F9}
+[data-theme="light"] .admin-ni:hover{background:#F8FAFC;color:#334155}
+[data-theme="light"] .admin-ni.active{background:rgba(249,115,22,.08);color:#EA580C;border-left-color:#F97316}
+[data-theme="light"] .admin-content{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .admin-sec-ttl{color:#0F172A}
+[data-theme="light"] .admin-sec-sub{color:#64748B}
+[data-theme="light"] .frow{background:#F8FAFC;border-color:#E2E8F0}
+[data-theme="light"] .frow:hover{background:#F1F5F9}
+[data-theme="light"] .frow-lbl{color:#334155}
+[data-theme="light"] .frow-meta{color:#64748B}
+[data-theme="light"] .add-btn{border-color:#CBD5E1;color:#64748B}
+[data-theme="light"] .add-btn:hover{border-color:#F97316;color:#F97316;background:rgba(249,115,22,.06)}
+
+/* Light mode tabs */
+[data-theme="light"] .tabs{background:#F8FAFC;border-color:#E2E8F0}
+[data-theme="light"] .tab{color:#64748B}
+[data-theme="light"] .tab.active{background:#FFFFFF;color:#0F172A;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+/* Light mode role cards */
+[data-theme="light"] .role-card{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .role-header:hover{background:#F8FAFC}
+[data-theme="light"] .role-name{color:#0F172A}
+[data-theme="light"] .role-desc{color:#64748B}
+[data-theme="light"] .perm-item{border-bottom-color:#F1F5F9}
+[data-theme="light"] .perm-name{color:#334155}
+
+/* Light mode upload zone */
+[data-theme="light"] .upload-zone{border-color:#CBD5E1}
+[data-theme="light"] .upload-zone:hover,[data-theme="light"] .upload-zone.drag{border-color:#F97316;background:rgba(249,115,22,.04)}
+
+/* Light mode pdf progress */
+[data-theme="light"] .pdf-progress{background:#F8FAFC;border-color:#E2E8F0}
+
+/* Light mode setup steps */
+[data-theme="light"] .setup-step{background:#F8FAFC;border-color:#E2E8F0}
+
+/* Light mode key display */
+[data-theme="light"] .key-display{background:#F8FAFC;border-color:#E2E8F0}
+
+/* Light mode deadline bell */
+[data-theme="light"] .deadline-panel{background:#FFFFFF;border-color:#E2E8F0}
+[data-theme="light"] .deadline-panel-hdr{background:#F8FAFC;border-bottom-color:#E2E8F0;color:#0F172A}
+[data-theme="light"] .deadline-item:hover{background:#FFF7ED}
+
+/* Light mode notifications */
+[data-theme="light"] .notif-pop{background:#FFFFFF;border-color:#E2E8F0}
+
+/* Light mode section headers */
+[data-theme="light"] .sec-ttl{color:#0F172A}
+[data-theme="light"] .divider{background:#E2E8F0}
+[data-theme="light"] .tag{background:#F1F5F9;border-color:#E2E8F0;color:#64748B}
+[data-theme="light"] .av{background:rgba(249,115,22,.1);color:#EA580C;border-color:rgba(249,115,22,.2)}
+
+/* Light mode info grid */
+[data-theme="light"] .ii .lbl{color:#64748B}
+[data-theme="light"] .ii .val{color:#334155}
+[data-theme="light"] .ii .val.mono{color:#EA580C}
+
+/* Light risk labels */
+[data-theme="light"] .risk-ok{color:#059669}
+[data-theme="light"] .risk-watch{color:#D97706}
+[data-theme="light"] .risk-atrisk{color:#DC2626}
+[data-theme="light"] .risk-overdue{color:#B91C1C}
+
+/* Light mode login */
+[data-theme="light"] .login-screen{background:linear-gradient(135deg,#F8FAFC 0%,#EFF6FF 40%,#FFF7ED 100%)}
+[data-theme="light"] .login-screen::before{background:radial-gradient(ellipse at 30% 50%,rgba(249,115,22,.06) 0%,transparent 60%),radial-gradient(ellipse at 70% 30%,rgba(37,99,235,.04) 0%,transparent 60%)}
+[data-theme="light"] .login-box{background:#FFFFFF;border-color:#E2E8F0;box-shadow:0 24px 64px rgba(0,0,0,.1),0 0 0 1px rgba(249,115,22,.04)}
+[data-theme="light"] .login-title{color:#0F172A}
+[data-theme="light"] .login-sub{color:#64748B}
+
+/* Smooth theme transition */
+*{transition:background-color .2s ease,border-color .2s ease,color .15s ease,box-shadow .2s ease}
+
+/* ══ THEME TOGGLE BUTTON ══ */
+.theme-toggle{width:44px;height:44px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted);transition:all .15s ease;flex-shrink:0;position:relative;overflow:hidden}
+.theme-toggle:hover{background:var(--surface3);color:var(--text);border-color:var(--border2)}
+.theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.theme-toggle .icon-dark,.theme-toggle .icon-light{position:absolute;transition:all .25s ease}
+.theme-toggle .icon-dark{opacity:1;transform:rotate(0deg) scale(1)}
+.theme-toggle .icon-light{opacity:0;transform:rotate(90deg) scale(.5)}
+[data-theme="light"] .theme-toggle .icon-dark{opacity:0;transform:rotate(-90deg) scale(.5)}
+[data-theme="light"] .theme-toggle .icon-light{opacity:1;transform:rotate(0deg) scale(1)}
+
+</style></head><body><h1>${j.id} — ${j.product}</h1><p style="color:#888">Printed: ${new Date().toLocaleString()}</p><table><tr><th colspan="2">Job Details</th></tr><tr><td>Customer</td><td>${j.customer}</td></tr><tr><td>Product</td><td>${j.product}</td></tr><tr><td>Quantity</td><td>${j.qty}</td></tr><tr><td>Priority</td><td>${j.priority}</td></tr><tr><td>Factory</td><td>${j.factory}</td></tr><tr><td>Status</td><td>${j.status}</td></tr><tr><td>Delivery Date</td><td>${F.date(j.deliveryDate)}</td></tr><tr><td>Supervisor</td><td>${j.supervisor}</td></tr>${j.remarks?`<tr><td>Remarks</td><td>${j.remarks}</td></tr>`:''}</table></body></html>`);w.print();}
 
 function quickStatusChange(id,status){
   if(!status)return;
@@ -3328,6 +3610,40 @@ function closeModalOut(e){if(e.target===document.getElementById('m-ov'))closeMod
 </script>
 </body>
 </html>
+
+// ═══════════════════════════════════════════════════
+//  THEME TOGGLE — Light / Dark
+// ═══════════════════════════════════════════════════
+function toggleTheme(){
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  try { localStorage.setItem('mfg-theme', next); } catch(e){}
+  // Update toggle button title
+  const btn = document.querySelector('.theme-toggle');
+  if(btn) btn.title = next === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode';
+}
+
+function initTheme(){
+  // 1. Check saved preference
+  let saved = null;
+  try { saved = localStorage.getItem('mfg-theme'); } catch(e){}
+  // 2. Fall back to OS preference
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = saved || (prefersDark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+  // Listen for OS preference changes
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    try {
+      const hasSaved = localStorage.getItem('mfg-theme');
+      if(!hasSaved) document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+    } catch(err){}
+  });
+}
+
+// Init theme immediately (before DOM paint to avoid flash)
+initTheme();
 
 // ═══════════════════════════════════════════════════
 //  BOOT
