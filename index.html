@@ -2908,6 +2908,12 @@ function confirmAddAccessUser(){
   log('User Added',`${n} added to the system.`,'success');
 }
 
+const adminTabs=[
+  {id:'custom-fields',lbl:'Custom Fields',ic:'ti-forms'},
+  {id:'task-templates',lbl:'Task Templates',ic:'ti-checklist'},
+  {id:'po-fields',lbl:'PO Fields',ic:'ti-file-text'},
+  {id:'notif-rules',lbl:'Notification Rules',ic:'ti-bell-cog'},
+];
 function renderAdmin(){
   return `<div class="admin-wrap">
     <div class="admin-nav">
@@ -3607,9 +3613,6 @@ function openModal(title,body,foot){
 }
 function closeModal(){document.getElementById('m-ov').classList.remove('open');}
 function closeModalOut(e){if(e.target===document.getElementById('m-ov'))closeModal();}
-</script>
-</body>
-</html>
 
 // ═══════════════════════════════════════════════════
 //  THEME TOGGLE — Light / Dark
