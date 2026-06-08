@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script>
   if(typeof pdfjsLib!=='undefined'){
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
@@ -647,6 +649,7 @@ tbody tr:hover{transform:translateX(2px)}
       <div class="sb-grp" id="admin-nav-grp">
         <div class="sb-lbl">System</div>
         <div class="sb-item" data-v="import" onclick="nav('import')"><i class="ti ti-upload"></i>Import PDF / Email</div>
+        <div class="sb-item" data-v="quotation" onclick="nav('quotation')"><i class="ti ti-file-invoice"></i>Quotation Generator</div>
         <div class="sb-item" data-v="integrations" onclick="nav('integrations')"><i class="ti ti-plug"></i>Integrations</div>
         <div class="sb-item" data-v="access" onclick="nav('access')"><i class="ti ti-shield-lock"></i>Access Control</div>
         <div class="sb-item" data-v="admin" onclick="nav('admin')"><i class="ti ti-settings-2"></i>Admin Panel</div>
@@ -1017,6 +1020,7 @@ const pgInfo={
   factory:['🏭 Factory Board','Capacity loading · Work-in-progress · Scheduling overview'],
   procurement:['🔩 Procurement','Raw material status · Supplier management · Delay alerts'],
   import:['📥 Import PO / Email','Upload PDF or scan Gmail inbox for purchase orders'],
+  quotation:['🧾 Quotation Generator','Create price quotations · Export Word or PDF · Company letterhead'],
   integrations:['🔌 Integrations','Connect Gmail, AI assistant and other services'],
   access:['🔒 Access Control','Roles, permissions and user management'],
   admin:['⚙ Admin Panel','Configure fields, task templates and rules'],
@@ -1040,10 +1044,16 @@ function render(){
     dashboard:renderDash, alerts:renderAlerts, orders:renderOrders,
     kanban:renderKanban, gantt:renderGantt, factory:renderFactory,
     procurement:renderProcurement, import:renderImport,
+    quotation:renderQuotation,
     integrations:renderIntegrations, access:renderAccess,
     admin:renderAdmin, settings:renderSettings
   };
   document.getElementById('main').innerHTML=(fn[curView]||renderDash)();
+  if(curView==='quotation'){
+    const items=document.getElementById('qt-items');
+    if(items) items.innerHTML=qtItemsHTML();
+    qtRefresh();
+  }
 }
 
 
@@ -1957,114 +1967,96 @@ async function processPDF(file){
   showFinalForm(fields, file.name, rawText, needsOCR?'Tesseract OCR':'PDF.js');
 }
 
-// ── SELF-CONTAINED FIELD EXTRACTOR ──
+// ── MULTI-FORMAT FIELD EXTRACTOR (Bangladesh PO formats) ──
 function extractAllFields(text, filename){
-  const t   = text || '';
-  const tl  = t.toLowerCase();
-  const out = {poNumber:'',poDate:'',dueDate:'',amount:0,vendorName:'',itemDescription:'',notes:'',category:'Other',confidence:0,warnings:[]};
-  let hits  = 0;
+  const t = text || '';
+  const out = {poNumber:'',poDate:'',dueDate:'',amount:0,vendorName:'',itemDescription:'',
+    requisitions:[],notes:'',category:'Other',confidence:0,warnings:[]};
+  let hits = 0;
+  const JUNK = /^(PURCHASE|CANCELLATION|NUMBER|ORDER|DATE|TOTAL|ITEM|NAME|SUPPLIER|PARTY|QUOTATION|REQUISITION|INDENT|PREPARED|APPROVED|REPRESENTATIVE|PRODUCT|PROPER|PROJECT|CHALLAN|EPARED|OVED|ESENTATIVE|ODUCT|OPER|OJECT|ETATION|BILL|SHIP|NILL|NULL|N\/A)$/i;
 
-  // PO Number
-  const poM = t.match(/P\.?O\.?\s*#\s*(\d{4,})/i)
-           || t.match(/P\.?O\.?\s*(?:no|number|#)?\s*:?\s*([A-Z0-9][A-Z0-9\-\/]{3,15})/i)
-           || t.match(/order\s+(?:no|#)\s*:?\s*([A-Z0-9\-]{4,15})/i);
-  if(poM && !/^(DATE|TOTAL|ITEM|SHIP|DESC)/i.test(poM[1])){
-    out.poNumber = poM[1].replace(/\s/g,'').toUpperCase(); hits++;
-  } else {
-    const fn = filename.match(/(\d{4,})/);
-    out.poNumber = fn ? 'PO-'+fn[1] : 'PO-'+Date.now().toString().slice(-6);
+  // PO NUMBER
+  const poLabel = /(?:Purchase\s*Order\s*(?:No|Number|#)?|P\.?\s*O\.?\s*(?:No|Number|#)?)\s*[:.#]*\s*([A-Z0-9][A-Z0-9\/\-]{4,30})/i;
+  let pm = t.match(poLabel);
+  if(pm && pm[1] && !JUNK.test(pm[1])){ out.poNumber=pm[1].replace(/[.:,]+$/,'').toUpperCase(); hits++; }
+  if(!out.poNumber){
+    const m2 = t.match(/\b((?:AKMF\/[A-Z\-]*\/?PO|AFML-PO|ABL-PO|APPL-PO|ACMLU|PO-ARMCL|PO-APFIL)[-\/A-Z0-9]{2,30})\b/i)
+            || t.match(/\b(Local\/[A-Z]+\/\d{4}\/\d+)\b/i)
+            || t.match(/\b(PO[-\/]\d{3,})\b/i) || t.match(/\b(\d{10})\b/);
+    if(m2 && !JUNK.test(m2[1])){ out.poNumber=m2[1].replace(/[.:,]+$/,'').toUpperCase(); hits++; }
+  }
+  if(!out.poNumber){
+    const fn=(filename||'').match(/([A-Z]{2,}[-\/][A-Z0-9\-]{3,}|PO[-\s]?\d+|\d{6,})/i);
+    out.poNumber = fn ? fn[1].replace(/\s/g,'').toUpperCase() : 'PO-'+Date.now().toString().slice(-6);
+    out.warnings.push('PO number guessed from filename');
   }
 
-  // All dates in text
-  const dates = [];
-  let dm;
-  const dp1 = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g;
-  const dp2 = /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/g;
-  while((dm=dp1.exec(t))!==null) dates.push({raw:dm[0],idx:dm.index});
-  while((dm=dp2.exec(t))!==null) dates.push({raw:dm[0],idx:dm.index});
-  dates.sort((a,b)=>a.idx-b.idx);
+  // DATES
+  const months={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  const dates=[]; let m;
+  let r1=/(\d{4})-(\d{1,2})-(\d{1,2})/g; while((m=r1.exec(t))) dates.push({y:+m[1],mo:+m[2],d:+m[3],idx:m.index});
+  let r2=/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/g; while((m=r2.exec(t))){let y=+m[3];if(y<100)y+=2000;if(+m[2]<=12)dates.push({y,mo:+m[2],d:+m[1],idx:m.index});}
+  let r3=/(\d{1,2})\s*([Il|]?)\s*[-\s]\s*([A-Za-z]{3,9})[-\s,]+(\d{4})/g;
+  while((m=r3.exec(t))){const mo=months[m[3].toLowerCase().slice(0,3)];if(mo){let d=+m[1];if(m[2]&&d<10)d=d*10+1;dates.push({y:+m[4],mo,d,idx:m.index});}}
+  function nearAfter(re){const lm=t.search(re);if(lm<0)return null;let best=null,bd=400;for(const dt of dates){const dist=dt.idx-lm;if(dist>=0&&dist<bd){bd=dist;best=dt;}}return best;}
+  const dt = nearAfter(/(?:PO\s*Date|Date\s*of\s*Issue|Order\s*Date|Issue|Date)/i) || dates[0];
+  if(dt){ out.poDate=dt.y+'-'+String(dt.mo).padStart(2,'0')+'-'+String(dt.d).padStart(2,'0'); hits++; }
+  else { out.poDate=new Date().toISOString().slice(0,10); out.warnings.push('PO date not found'); }
+  const dd = nearAfter(/(?:Delivery|Last\s*Shipment|Due)/i);
+  out.dueDate = dd ? (dd.y+'-'+String(dd.mo).padStart(2,'0')+'-'+String(dd.d).padStart(2,'0'))
+                   : new Date(Date.now()+45*864e5).toISOString().slice(0,10);
 
-  function closestDateAfter(label){
-    const lm = t.search(new RegExp(label,'i'));
-    if(lm<0) return null;
-    const d = dates.find(d=>d.idx>lm);
-    return d ? d.raw : null;
+  // BUYER
+  const lines=t.split('\n').map(l=>l.trim()).filter(Boolean);
+  for(const line of lines.slice(0,14)){
+    if(/MICRO ENGINEERING/i.test(line)) continue;
+    const cm=line.match(/([A-Z][A-Za-z.& ]{4,}(?:LTD|LIMITED|PLC|MILLS|FACTORY|CEMENT|GROUP|INDUSTRIES|COMPANY|BAKERS|BEVERAGE|TOBACCO|TEXTILE|FOOD)\.?(?:\s*(?:UNIT|UNTT)[.\- ]*I*I*\s*LTD\.?)?)/);
+    if(cm){ let b=cm[1].replace(/\s+/g,' ').trim(); b=b.replace(/^[A-Za-z]{1,3}\s+[a-z]+\s+/,''); out.vendorName=b; hits++; break; }
   }
-  function nd(s){
-    if(!s) return null;
-    const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-    if(m1){ let y=+m1[3]; if(y<100)y+=2000; return `${y}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`; }
-    const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-    if(m2) return `${m2[1]}-${m2[2].padStart(2,'0')}-${m2[3].padStart(2,'0')}`;
-    return null;
-  }
+  if(!out.vendorName) out.warnings.push('Buyer not detected');
 
-  const poDateRaw  = closestDateAfter('\\bDATE\\b') || dates[0]?.raw;
-  const dueDateRaw = closestDateAfter('DELIVERY.{0,5}DATE|DUE.{0,5}DATE') || dates[1]?.raw;
-  out.poDate  = nd(poDateRaw)  || new Date().toISOString().slice(0,10); if(out.poDate) hits++;
-  out.dueDate = nd(dueDateRaw) || new Date(Date.now()+45*864e5).toISOString().slice(0,10); if(out.dueDate) hits++;
+  // REQUISITIONS (multiple)
+  const prSet=new Set();
+  const prPats=[/\b((?:PR|SPR)[-\/][A-Z0-9][A-Z0-9\-\/]{2,22})\b/gi,/\b([A-Z]{2,6}-SPR-\d{4}-\d{3,})\b/gi,/\b((?:RE|CS)--\d{4,})\b/gi,/\b([A-Z]{2,6}\/\d{4}\/PR\d+(?:\/[A-Z0-9-]+)?)\b/gi,/\bPR-\d{3,}\b/gi];
+  for(const p of prPats){let mm;while((mm=p.exec(t))){const v=(mm[1]||mm[0]).replace(/[.:,]+$/,'').toUpperCase();if(v.length>=5&&!JUNK.test(v))prSet.add(v);}}
+  let reqs=[...prSet]; reqs=reqs.filter(rq=>!reqs.some(o=>o!==rq&&o.endsWith(rq)));
+  out.requisitions=reqs; if(reqs.length) hits++;
 
-  // Amount — try multiple strategies
-  // 1) TOTAL\n amount$
-  // Try all amount strategies in order
-  const totM = t.match(/\bTOTAL\b[\s\S]{0,30}?([\d,]+\.\d{2})\s*\$?/i)
-             || t.match(/([\d,]+\.\d{2})\s*\$\s*$/m)  // amount$ at end of line
-             || t.match(/\$\s*([\d,]+\.\d{2})/);       // $amount
-  if(totM){ const n=parseFloat(totM[1].replace(/,/g,'')); if(n>0){out.amount=n;hits++;} }
-  // 2) Largest number$
-  if(!out.amount){
-    const all=[...t.matchAll(/([\d,]+\.\d{2})\s*\$/g)].map(m=>parseFloat(m[1].replace(/,/g,'')));
-    if(all.length){out.amount=Math.max(...all);hits++;}
-  }
-  // 3) $number
-  if(!out.amount){
-    const all=[...t.matchAll(/\$\s*([\d,]+\.\d{2})/g)].map(m=>parseFloat(m[1].replace(/,/g,'')));
-    if(all.length){out.amount=Math.max(...all);hits++;}
-  }
-  // 4) Bare large numbers
-  if(!out.amount){
-    const all=[...t.matchAll(/\b([\d,]{4,})\b/g)].map(m=>parseFloat(m[1].replace(/,/g,''))).filter(n=>n>100&&n<10000000);
-    if(all.length){out.amount=Math.max(...all);hits++;}
-  }
+  // LINE ITEMS
+  const itemRe=/^\s*(\d{1,3})[.\)]?\s+([A-Za-z][^\n]{3,90}?)\s{1,}(\d{1,4}(?:\.\d{1,2})?)\s*(?:Pcs?|Set|Sets|Piece|PCS|JOB|Nos?|Unit|Kg|Mtr)?\s+([\d,]+(?:\.\d{2})?)\s+([\d,]+(?:\.\d{2})?)\b/gim;
+  const items=[]; let li;
+  while((li=itemRe.exec(t))){ const desc=li[2].trim().replace(/\s{2,}/g,' '); if(JUNK.test(desc)||/^(ITEM|DESCRIPTION|BRAND)/i.test(desc))continue; items.push({desc,qty:li[3],rate:li[4].replace(/,/g,''),amount:li[5].replace(/,/g,'')}); }
+  if(items.length){ out.itemDescription=items[0].desc; hits++; }
 
-  // Vendor — skip template placeholders, take first real name-like line
-  const skipLine = /\[|\(000\)|Phone:|Fax:|Website:|PURCHASE|VENDOR|SHIP|ITEM|TOTAL|Comment|Template|Invoice|SUBTOTAL|TAX|SHIPPING|TEMPLATE LAB|^(DATE|PO|QTY|NY,?|DESCRIPTION|UNIT|PRICE|TERMS|METHOD|DELIVERY|FEDEX|UPS|DHL|Cost,)$/i;
-  for(const line of t.split('\n').map(l=>l.trim()).filter(l=>l.length>3)){
-    if(skipLine.test(line)) continue;
-    if(/^[A-Za-z][A-Za-z0-9\s&.,\-]{3,60}$/.test(line)){
-      out.vendorName=line.trim(); hits++; break;
-    }
-  }
+  // AMOUNT
+  const totRe=[/Grand\s*Total(?:\s*Price)?(?:\s*\(BDT\))?\s*[:=]?\s*([\d,]+(?:\.\d{2})?)/i,/Total\s*(?:Taka|Price|Amount|\(BDT\)|BDT)\s*[:=]?\s*([\d,]+(?:\.\d{2})?)/i,/\bTotal\b\s+([\d,]{3,}(?:\.\d{2})?)/i];
+  for(const p of totRe){const tm=t.match(p);if(tm){const n=parseFloat(tm[1].replace(/,/g,''));if(n>0&&n<1e8){out.amount=n;hits++;break;}}}
+  if(!out.amount && items.length){ out.amount=items.reduce((s,it)=>s+(parseFloat(it.amount)||0),0); if(out.amount>0)hits++; }
+  if(!out.amount){ const iwm=t.match(/In[-\s]?Words?\s*(?:\(Total\))?\s*[:.]?\s*([A-Za-z][A-Za-z ,\-]+?Only)/i); if(iwm){const n=qtNumberToWords?wordsToNum(iwm[1]):0;if(n>=100){out.amount=n;hits++;out.warnings.push('Amount from in-words');}} }
 
-  // Item — from line-item table
-  const liM = t.match(/^(\d{5,})\s+(.{5,60}?)\s+(\d+)\s+[\d,]+\.\d{2}/m);
-  if(liM){out.itemDescription=liM[2].trim();hits++;}
-  else {
-    const dM=t.match(/(?:description|item|goods|product)\s*:?\s*([A-Za-z][A-Za-z0-9\s,\-()/]{5,100})/i);
-    if(dM){out.itemDescription=dM[1].trim();hits++;}
-  }
+  out.category = (typeof categorise==='function') ? categorise(t.toLowerCase()) : 'Other';
 
-  // Line items
-  const lis=[...t.matchAll(/^(\d{5,})\s+(.{4,60}?)\s+(\d+)\s+([\d,]+\.\d{2})\s*\$/mg)];
-  if(lis.length) out.lineItems = lis.map(m=>`${m[2].trim()} ×${m[3]} @$${m[4]}`).join(' | ');
+  const np=[];
+  if(out.requisitions.length) np.push('Req: '+out.requisitions.join(', '));
+  if(items.length) np.push(items.length+' line item(s)');
+  out.notes = np.join(' · ') || ('Imported from '+filename);
 
-  // Category
-  out.category = categorise(tl);
-
-  // Notes
-  const parts=[];
-  const shM=t.match(/\b(FEDEX|UPS|DHL|USPS|courier)\b/i); if(shM) parts.push('Shipping: '+shM[0]);
-  const trM=t.match(/CIF|FOB|CFR|EXW|DDP|Cost,?\s*Insurance/i); if(trM) parts.push('Terms: '+trM[0]);
-  if(out.lineItems) parts.push('Items: '+out.lineItems);
-  out.notes = parts.join(' · ') || 'Imported from: '+filename;
-
-  // Confidence
-  out.confidence = Math.round((hits/7)*100);
-  if(!out.poNumber) out.warnings.push('PO number not detected');
-  if(!out.amount)   out.warnings.push('Amount not detected');
-  if(!out.vendorName) out.warnings.push('Vendor name not detected');
-
+  out.confidence = Math.min(100, Math.round((hits/6)*100));
   return out;
+}
+
+// in-words → number (lac/crore aware)
+function wordsToNum(str){
+  if(!str) return 0;
+  const small={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+  const scales={hundred:100,thousand:1000,lac:100000,lakh:100000,lacs:100000,lakhs:100000,crore:10000000,crores:10000000,million:1000000};
+  let total=0,cur=0;
+  str.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean).forEach(w=>{
+    if(w in small) cur+=small[w];
+    else if(w==='hundred') cur=(cur||1)*100;
+    else if(w in scales){ cur=(cur||1)*scales[w]; total+=cur; cur=0; }
+  });
+  return total+cur;
 }
 
 function showFinalForm(f, filename, rawText, method){
@@ -2086,6 +2078,7 @@ function showFinalForm(f, filename, rawText, method){
       <div class="fg"><label class="fl">Delivery Date</label><input type="date" class="fc" id="ex-due" value="${f.dueDate}"></div>
     </div>
     <div class="fg"><label class="fl">Vendor / Customer</label><input class="fc" id="ex-ven" value="${f.vendorName||''}"></div>
+    <div class="fg"><label class="fl">Requisitions (comma-separated — one PO can have multiple)</label><input class="fc" id="ex-reqs" value="${(f.requisitions||[]).join(', ')}" placeholder="PR-2026-000317, RE--005563"></div>
     <div class="fg"><label class="fl">Item / Description</label><input class="fc" id="ex-item" value="${f.itemDescription||''}"></div>
     <div class="fc-row">
       <div class="fg"><label class="fl">Category</label><select class="fc" id="ex-cat">${['Machinery','Electronics','Safety','Furniture','IT','Raw Materials','Other'].map(c=>`<option ${f.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
@@ -2465,8 +2458,10 @@ function confirmExtract(){
   const cat=document.getElementById('ex-cat').value;
   const today=new Date().toISOString().slice(0,10);
   const dd=document.getElementById('ex-due').value||new Date(Date.now()+45*86400000).toISOString().slice(0,10);
+  const reqs=(document.getElementById('ex-reqs')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
   jobs.unshift({
     id,customer:document.getElementById('ex-ven').value,po:id,
+    requisitions:reqs,
     product:document.getElementById('ex-item').value,
     qty:parseInt(document.getElementById('ex-amt').value)||0,
     priority:'🟢 Normal',factory:'Factory 1',
@@ -2490,6 +2485,240 @@ function confirmExtract(){
       <button class="btn btn-sm" onclick="nav('alerts')">View Alerts</button>
     </div></div>`;
 }
+
+// ═══════════════════════════════════════════════════════════
+//  QUOTATION GENERATOR
+// ═══════════════════════════════════════════════════════════
+let quotationItems = [{desc:'',qty:1,unitPrice:0}];
+let quotationVat = 0;
+
+function qtNumberToWords(num){
+  num=Math.round(num);
+  if(num===0) return 'Zero';
+  const ones=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  const two=n=>n<20?ones[n]:tens[Math.floor(n/10)]+(n%10?' '+ones[n%10]:'');
+  const three=n=>(n>=100?ones[Math.floor(n/100)]+' Hundred'+(n%100?' ':''):'')+(n%100?two(n%100):'');
+  let w='';
+  const crore=Math.floor(num/10000000); num%=10000000;
+  const lac=Math.floor(num/100000); num%=100000;
+  const thou=Math.floor(num/1000); num%=1000;
+  if(crore) w+=three(crore)+' Crore ';
+  if(lac) w+=two(lac)+' Lac ';
+  if(thou) w+=two(thou)+' Thousand ';
+  if(num) w+=three(num);
+  return w.trim().replace(/\s+/g,' ');
+}
+function qtFmt(n){ return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function qtCompute(){
+  let sub=0;
+  const rows=quotationItems.map((it,i)=>{
+    const qty=parseFloat(it.qty)||0,up=parseFloat(it.unitPrice)||0;
+    const lt=qty*up; sub+=lt;
+    const vat=quotationVat>0?lt*(quotationVat/100):0;
+    return {sl:String(i+1).padStart(2,'0')+'.',desc:it.desc,qty,unitPrice:up,vat,total:lt+vat};
+  });
+  const vatTotal=quotationVat>0?sub*(quotationVat/100):0;
+  return {rows,subtotal:sub,vatTotal,grand:sub+vatTotal};
+}
+
+function renderQuotation(){
+  if(!canDo('Create PO')) return `<div class="empty"><i class="ti ti-lock"></i><p>You don't have permission to generate quotations.</p></div>`;
+  const today=new Date().toISOString().slice(0,10);
+  return `<div class="sec-hdr"><div class="sec-ttl">Quotation Generator</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-sm" onclick="exportQuotation('pdf')"><i class="ti ti-file-type-pdf"></i>Export PDF</button>
+      <button class="btn btn-sm btn-p" onclick="exportQuotation('word')"><i class="ti ti-file-type-docx"></i>Export Word</button>
+    </div></div>
+  <div class="grid2" style="grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Quotation Details</div>
+      <div class="fc-row">
+        <div class="fg"><label class="fl">Reference No</label><input class="fc" id="qt-ref" placeholder="MEW/...-(3321)" oninput="qtRefresh()"></div>
+        <div class="fg"><label class="fl">Date</label><input type="date" class="fc" id="qt-date" value="${today}" oninput="qtRefresh()"></div>
+      </div>
+      <div class="fg"><label class="fl">To (Department / Designation)</label><input class="fc" id="qt-dept" placeholder="Purchase Department" oninput="qtRefresh()"></div>
+      <div class="fg"><label class="fl">Company Name</label><input class="fc" id="qt-company" placeholder="Akij Food & Beverage Ltd." oninput="qtRefresh()"></div>
+      <div class="fg"><label class="fl">Company Address</label><textarea class="fc" id="qt-address" placeholder="Akij House, 198 Gulshan Link Road, Tejgaon, Dhaka." oninput="qtRefresh()"></textarea></div>
+      <div class="fg"><label class="fl">Attention (optional)</label><input class="fc" id="qt-attn" placeholder="Md. Touhidur Rahman, Asst. Manager" oninput="qtRefresh()"></div>
+
+      <div style="font-size:13px;font-weight:700;margin:16px 0 10px">Line Items</div>
+      <div id="qt-items"></div>
+      <button class="add-btn" onclick="qtAddItem()" style="margin-top:8px"><i class="ti ti-plus"></i>Add Line Item</button>
+
+      <div class="fc-row" style="margin-top:16px">
+        <div class="fg"><label class="fl">VAT %</label>
+          <select class="fc" id="qt-vat" onchange="quotationVat=parseFloat(this.value);qtRefresh()">
+            <option value="0">No VAT</option><option value="5">5%</option><option value="10">10%</option><option value="15">15%</option>
+          </select></div>
+        <div class="fg"><label class="fl">Signatory</label>
+          <select class="fc" id="qt-sign" onchange="qtRefresh()">
+            <option>Masud Rana</option><option>Atiqur Rahman</option><option>Abu Nayeem</option>
+          </select></div>
+      </div>
+      <div class="fg"><label class="fl">Terms &amp; Conditions (one per line)</label>
+        <textarea class="fc" id="qt-terms" style="min-height:90px" oninput="qtRefresh()">Payment Term - 30 days credit
+Warranty Period - 06 Month
+VAT &amp; Tax - Included
+Delivery Time - 20 days
+Offer Validity - 12 days</textarea></div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="font-size:13px;font-weight:700;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">Live Preview</div>
+      <div id="qt-preview" style="padding:16px;background:#fff;max-height:680px;overflow:auto"></div>
+    </div>
+  </div>`;
+}
+
+function qtItemsHTML(){
+  return quotationItems.map((it,i)=>`<div class="frow" style="gap:6px">
+    <input class="fc" style="flex:3;min-width:0" placeholder="Description" value="${(it.desc||'').replace(/"/g,'&quot;')}" oninput="quotationItems[${i}].desc=this.value;qtRefresh()">
+    <input class="fc" style="flex:1;min-width:50px" type="number" placeholder="Qty" value="${it.qty||''}" oninput="quotationItems[${i}].qty=this.value;qtRefresh()">
+    <input class="fc" style="flex:1.3;min-width:70px" type="number" placeholder="Unit Price" value="${it.unitPrice||''}" oninput="quotationItems[${i}].unitPrice=this.value;qtRefresh()">
+    <button class="btn btn-icon btn-sm btn-err" onclick="qtRemoveItem(${i})" ${quotationItems.length<=1?'disabled':''}><i class="ti ti-trash"></i></button>
+  </div>`).join('');
+}
+function qtAddItem(){ quotationItems.push({desc:'',qty:1,unitPrice:0}); qtRefresh(); document.getElementById('qt-items').innerHTML=qtItemsHTML(); }
+function qtRemoveItem(i){ quotationItems.splice(i,1); qtRefresh(); document.getElementById('qt-items').innerHTML=qtItemsHTML(); }
+
+function qtGatherData(){
+  const g=id=>{const e=document.getElementById(id);return e?e.value:'';};
+  return {
+    ref:g('qt-ref'), date:qtFmtDate(g('qt-date')), toDept:g('qt-dept'),
+    toCompany:g('qt-company'), toAddress:g('qt-address'), attention:g('qt-attn'),
+    signatory:g('qt-sign'), vatPercent:quotationVat,
+    terms:(g('qt-terms')||'').split('\n').map(t=>t.trim()).filter(Boolean),
+    items:quotationItems
+  };
+}
+function qtFmtDate(iso){ if(!iso)return''; const[y,m,d]=iso.split('-'); return `${d}/${m}/${y}`; }
+
+function qtBuildHTML(data, forExport){
+  const {rows,grand}=qtCompute();
+  const hasVat=data.vatPercent>0;
+  const cols=hasVat?['SL','Description Of Stores','Qty','Unit Price (Tk)','VAT '+data.vatPercent+'%','Total (Tk)']
+                   :['SL','Description Of Stores','Qty','Unit Price (Tk)','Total Taka'];
+  const lh=window._letterheadDataUrl;
+  const header=lh
+    ? `<img src="${lh}" style="width:100%;max-height:130px;object-fit:contain;display:block;margin-bottom:6px">`
+    : `<div style="text-align:center;border-bottom:3px double #1a3a8f;padding-bottom:8px;margin-bottom:8px">
+         <div style="font-size:22px;font-weight:bold;color:#1a3a8f;font-family:'Times New Roman',serif">MICRO ENGINEERING WORKSHOP</div>
+         <div style="font-size:11px;color:#555">Precision Engineering &amp; Fabrication Workshop</div>
+       </div>`;
+  const tdB='border:1px solid #000;padding:5px 7px;';
+  const rowsHtml=rows.map(r=>`<tr>
+    <td style="${tdB}text-align:center">${r.sl}</td>
+    <td style="${tdB}">${(r.desc||'').replace(/</g,'&lt;')}</td>
+    <td style="${tdB}text-align:center">${r.qty}</td>
+    <td style="${tdB}text-align:right">${qtFmt(r.unitPrice)}</td>
+    ${hasVat?`<td style="${tdB}text-align:right">${qtFmt(r.vat)}</td>`:''}
+    <td style="${tdB}text-align:right">${qtFmt(r.total)}</td></tr>`).join('');
+  return `<div style="font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;${forExport?'padding:24px 32px;max-width:760px;margin:auto':''}">
+    ${header}
+    <div style="text-align:center;font-size:17px;font-weight:bold;margin:14px 0;text-decoration:underline">Price Quotation</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span>${data.ref?('Ref: '+data.ref):'&nbsp;'}</span><span>Date: ${data.date||''}</span></div>
+    <div style="margin-bottom:10px">
+      <div>To</div>
+      ${data.toDept?`<div>${data.toDept}</div>`:''}
+      <div style="font-weight:bold">${data.toCompany||''}</div>
+      <div style="white-space:pre-line">${data.toAddress||''}</div>
+      ${data.attention?`<div style="margin-top:4px">Attention: ${data.attention}</div>`:''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:10px">
+      <thead><tr>${cols.map(c=>`<th style="${tdB}background:#eee;text-align:center">${c}</th>`).join('')}</tr></thead>
+      <tbody>${rowsHtml}
+        <tr><td colspan="${hasVat?5:4}" style="${tdB}text-align:right;font-weight:bold">TOTAL TAKA =</td>
+        <td style="${tdB}text-align:right;font-weight:bold">${qtFmt(grand)}</td></tr></tbody>
+    </table>
+    <div style="margin-bottom:10px">In word: Taka ${qtNumberToWords(grand)} only.</div>
+    ${data.terms&&data.terms.length?`<div style="margin-bottom:10px">
+      <div style="font-weight:bold;text-decoration:underline">Terms &amp; Conditions:</div>
+      ${data.terms.map(t=>`<div>${t}</div>`).join('')}</div>`:''}
+    <div style="margin-top:22px">Thanking you</div>
+    <div style="margin-top:26px"><div style="font-weight:bold">${data.signatory||'Masud Rana'} (Manager)</div>
+      <div>For: Micro Engineering Workshop</div></div>
+    <div style="border-top:2px solid #1a3a8f;margin-top:24px;padding-top:6px;text-align:center;font-size:11px;color:#555">
+      33/B, Sarath Gupta Road, Narinda, Dhaka-1100 &middot; Tel: 02-7126099, Mobile: 01711-682519</div>
+  </div>`;
+}
+
+function qtRefresh(){
+  const prev=document.getElementById('qt-preview');
+  if(prev) prev.innerHTML=qtBuildHTML(qtGatherData(),false);
+}
+
+function exportQuotation(type){
+  const data=qtGatherData();
+  if(!data.toCompany){ showNotif('Missing Info','Enter the company name first.','warn'); return; }
+  if(type==='pdf'){
+    const el=document.createElement('div');
+    el.innerHTML=qtBuildHTML(data,true);
+    if(typeof html2pdf==='undefined'){ showNotif('Library loading','PDF library still loading, try again.','warn'); return; }
+    html2pdf().set({margin:0,filename:'Quotation_'+(data.toCompany||'MEW').replace(/[^A-Za-z0-9]/g,'_')+'.pdf',
+      image:{type:'jpeg',quality:0.98},html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}})
+      .from(el).save();
+    showNotif('Exporting PDF','Your quotation PDF is downloading.','success');
+  } else {
+    exportQuotationWord(data);
+  }
+}
+
+function exportQuotationWord(data){
+  if(typeof docx==='undefined'){ showNotif('Library loading','Word library still loading, try again.','warn'); return; }
+  const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,AlignmentType}=docx;
+  const {rows,grand}=qtCompute();
+  const hasVat=data.vatPercent>0;
+  const F="Times New Roman";
+  const tr=(txt,o={})=>new TextRun(Object.assign({text:txt,font:F,size:22},o));
+  const cell=(txt,o={},cellOpts={})=>new TableCell(Object.assign({children:[new Paragraph({children:[tr(txt,o.run||{})],alignment:o.align||AlignmentType.LEFT})]},cellOpts));
+  const hdrLabels=hasVat?['SL','Description Of Stores','Qty','Unit Price','VAT '+data.vatPercent+'%','Total']
+                        :['SL','Description Of Stores','Qty','Unit Price','Total Taka'];
+  const headerRow=new TableRow({tableHeader:true,children:hdrLabels.map(h=>cell(h,{run:{bold:true},align:AlignmentType.CENTER}))});
+  const bodyRows=rows.map(r=>{
+    const c=[cell(r.sl,{align:AlignmentType.CENTER}),cell(r.desc),cell(String(r.qty),{align:AlignmentType.CENTER}),cell(qtFmt(r.unitPrice),{align:AlignmentType.RIGHT})];
+    if(hasVat) c.push(cell(qtFmt(r.vat),{align:AlignmentType.RIGHT}));
+    c.push(cell(qtFmt(r.total),{align:AlignmentType.RIGHT}));
+    return new TableRow({children:c});
+  });
+  const totalRow=new TableRow({children:[
+    new TableCell({columnSpan:hasVat?5:4,children:[new Paragraph({children:[tr('TOTAL TAKA =',{bold:true})],alignment:AlignmentType.RIGHT})]}),
+    cell(qtFmt(grand),{run:{bold:true},align:AlignmentType.RIGHT})
+  ]});
+  const children=[
+    new Paragraph({children:[tr('MICRO ENGINEERING WORKSHOP',{bold:true,size:36,color:'1A3A8F'})],alignment:AlignmentType.CENTER}),
+    new Paragraph({children:[tr('Precision Engineering & Fabrication Workshop',{size:18,color:'555555'})],alignment:AlignmentType.CENTER,spacing:{after:120}}),
+    new Paragraph({children:[tr('Price Quotation',{bold:true,size:30,underline:{}})],alignment:AlignmentType.CENTER,spacing:{before:120,after:160}}),
+    new Paragraph({children:[tr((data.ref?'Ref: '+data.ref+'\t\t\t\t':'')+'Date: '+(data.date||''))],alignment:data.ref?AlignmentType.LEFT:AlignmentType.RIGHT}),
+    new Paragraph({children:[tr('To')]}),
+  ];
+  if(data.toDept) children.push(new Paragraph({children:[tr(data.toDept)]}));
+  children.push(new Paragraph({children:[tr(data.toCompany,{bold:true})]}));
+  if(data.toAddress) data.toAddress.split('\n').forEach(l=>children.push(new Paragraph({children:[tr(l)]})));
+  if(data.attention) children.push(new Paragraph({children:[tr('Attention: '+data.attention)],spacing:{before:80}}));
+  children.push(new Paragraph({text:'',spacing:{after:80}}));
+  children.push(new Table({width:{size:100,type:WidthType.PERCENTAGE},rows:[headerRow,...bodyRows,totalRow]}));
+  children.push(new Paragraph({children:[tr('In word: Taka '+qtNumberToWords(grand)+' only.')],spacing:{before:160,after:120}}));
+  if(data.terms&&data.terms.length){
+    children.push(new Paragraph({children:[tr('Terms & Conditions:',{bold:true,underline:{}})],spacing:{before:80}}));
+    data.terms.forEach(t=>children.push(new Paragraph({children:[tr(t)]})));
+  }
+  children.push(new Paragraph({children:[tr('Thanking you')],spacing:{before:240}}));
+  children.push(new Paragraph({children:[tr((data.signatory||'Masud Rana')+' (Manager)',{bold:true})],spacing:{before:240}}));
+  children.push(new Paragraph({children:[tr('For: Micro Engineering Workshop')]}));
+  children.push(new Paragraph({children:[tr('33/B, Sarath Gupta Road, Narinda, Dhaka-1100 | Tel: 02-7126099, Mobile: 01711-682519',{size:18,color:'555555'})],alignment:AlignmentType.CENTER,spacing:{before:360}}));
+  const doc=new Document({sections:[{children}]});
+  Packer.toBlob(doc).then(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='Quotation_'+(data.toCompany||'MEW').replace(/[^A-Za-z0-9]/g,'_')+'.docx';
+    a.click(); URL.revokeObjectURL(url);
+    showNotif('Exporting Word','Your quotation .docx is downloading.','success');
+  });
+}
+
+
 function renderIntegrations(){
   return `
   <!-- AI INTEGRATION -->
@@ -3033,6 +3262,7 @@ const adminTabs=[
   {id:'task-templates',lbl:'Task Templates',ic:'ti-checklist'},
   {id:'po-fields',lbl:'PO Fields',ic:'ti-file-text'},
   {id:'notif-rules',lbl:'Notification Rules',ic:'ti-bell-cog'},
+  {id:'letterhead',lbl:'Letterhead',ic:'ti-photo'},
 ];
 function renderAdmin(){
   return `<div class="admin-wrap">
@@ -3045,9 +3275,43 @@ function renderAdmin(){
 }
 
 function renderAdminSection(){
-  const fn={'custom-fields':renderAdminCF,'task-templates':renderAdminTT,'po-fields':renderAdminPF,'notif-rules':renderAdminNR};
+  const fn={'custom-fields':renderAdminCF,'task-templates':renderAdminTT,'po-fields':renderAdminPF,'notif-rules':renderAdminNR,'letterhead':renderAdminLetterhead};
   return (fn[curAdminTab]||renderAdminCF)();
 }
+
+function renderAdminLetterhead(){
+  const lh=window._letterheadDataUrl;
+  return `<div class="admin-sec-ttl"><i class="ti ti-photo"></i> Company Letterhead</div>
+    <div class="admin-sec-sub">Upload your company letterhead image (logo + header). It will appear at the top of every generated quotation. Recommended: a wide banner image (PNG/JPG), similar proportion to an A4 page width.</div>
+    <div class="upload-zone" style="margin-bottom:16px" onclick="document.getElementById('lh-file').click()" id="lh-zone"
+      ondrop="lhDrop(event)" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')">
+      <input type="file" id="lh-file" accept="image/png,image/jpeg,image/jpg" style="display:none" onchange="lhUpload(this.files[0])">
+      <i class="ti ti-cloud-upload" style="font-size:34px;color:var(--accent);display:block;margin-bottom:8px"></i>
+      <div style="font-weight:600;font-size:13px">Click or drag to upload letterhead</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">PNG or JPG, up to ~2 MB</div>
+    </div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:8px">Current Letterhead Preview</div>
+    <div style="border:1px solid var(--border);border-radius:var(--rl);padding:12px;background:#fff;text-align:center">
+      ${lh ? `<img src="${lh}" style="max-width:100%;max-height:160px;object-fit:contain">
+        <div style="margin-top:10px"><button class="btn btn-sm btn-err" onclick="lhRemove()"><i class="ti ti-trash"></i>Remove Letterhead</button></div>`
+        : `<div style="color:var(--muted);font-size:12px;padding:24px">No letterhead uploaded. Quotations will use a default text header (MICRO ENGINEERING WORKSHOP).</div>`}
+    </div>`;
+}
+
+function lhUpload(file){
+  if(!file) return;
+  if(file.size>2.5*1024*1024){ showNotif('Too large','Please upload an image under 2.5 MB.','warn'); return; }
+  const reader=new FileReader();
+  reader.onload=e=>{
+    window._letterheadDataUrl=e.target.result;
+    try{ localStorage.setItem('mew-letterhead',e.target.result); }catch(err){}
+    showNotif('Letterhead saved','It will now appear on generated quotations.','success');
+    render();
+  };
+  reader.readAsDataURL(file);
+}
+function lhDrop(e){ e.preventDefault(); e.currentTarget.classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f) lhUpload(f); }
+function lhRemove(){ window._letterheadDataUrl=null; try{localStorage.removeItem('mew-letterhead');}catch(e){} showNotif('Letterhead removed','Quotations will use the default header.','info'); render(); }
 
 function renderAdminCF(){
   const rows=adminCfg.customFields.length?adminCfg.customFields.map(f=>`
@@ -3576,6 +3840,7 @@ function initTheme(){
 
 // Init theme immediately (before DOM paint to avoid flash)
 initTheme();
+try{ const _lh=localStorage.getItem('mew-letterhead'); if(_lh) window._letterheadDataUrl=_lh; }catch(e){}
 
 // ═══════════════════════════════════════════════════
 //  BOOT
