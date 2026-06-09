@@ -699,6 +699,7 @@ tbody tr:hover{transform:translateX(2px)}
     </div>
     <div class="ptabs" id="ptabs">
       <div class="ptab active" onclick="switchTab('details',this)">Details</div>
+      <div class="ptab" onclick="switchTab('materials',this)">Materials</div>
       <div class="ptab" onclick="switchTab('timeline',this)">Timeline</div>
       <div class="ptab" onclick="switchTab('docs',this)">Documents</div>
       <div class="ptab" onclick="switchTab('ai',this)">AI Assistant</div>
@@ -826,7 +827,7 @@ let integrations = {
 const TODAY = new Date('2026-05-17');
 
 let jobs = [
-  {id:'JOB-001',customer:'Apex Industries',po:'PO-2024-001',product:'Steel Frame Assembly',qty:500,priority:'🔴 Critical',factory:'Factory 1',orderDate:'2026-04-17',deliveryDate:'2026-05-22',procStart:'2026-04-19',matArrival:'2026-04-27',prodStart:'2026-05-02',qcDate:'2026-05-19',dispatchDate:'2026-05-21',status:'In Production',completion:0.10,supervisor:'Rahul Sharma',remarks:'Rush order – penalty clause',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 17, 2026'},{done:true,lbl:'Material procured',t:'Apr 27, 2026'},{done:true,lbl:'Production started',t:'May 2, 2026'},{done:false,lbl:'QC scheduled',t:'May 19, 2026'},{done:false,lbl:'Dispatch',t:'May 21, 2026'}]},
+  {id:'JOB-001',customer:'Apex Industries',po:'PO-2024-001',product:'Steel Frame Assembly',qty:500,priority:'🔴 Critical',factory:'Factory 1',orderDate:'2026-04-17',deliveryDate:'2026-05-22',procStart:'2026-04-19',matArrival:'2026-04-27',prodStart:'2026-05-02',qcDate:'2026-05-19',dispatchDate:'2026-05-21',status:'In Production',completion:0.10,supervisor:'Rahul Sharma',remarks:'Rush order – penalty clause',materials:[{sl:'1',material:'Steel Billets 60mm',qty:'500',unit:'Pcs',rate:'4500',amount:'2250000'},{sl:'2',material:'Welding Consumables',qty:'40',unit:'Kg',rate:'320',amount:'12800'}],docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 17, 2026'},{done:true,lbl:'Material procured',t:'Apr 27, 2026'},{done:true,lbl:'Production started',t:'May 2, 2026'},{done:false,lbl:'QC scheduled',t:'May 19, 2026'},{done:false,lbl:'Dispatch',t:'May 21, 2026'}]},
   {id:'JOB-002',customer:'TechBuild Co.',po:'PO-2024-002',product:'Aluminum Casing 200mm',qty:1200,priority:'🟡 High',factory:'Factory 2',orderDate:'2026-04-22',deliveryDate:'2026-05-29',procStart:'2026-04-24',matArrival:'2026-05-01',prodStart:'2026-05-07',qcDate:'2026-05-25',dispatchDate:'2026-05-28',status:'In Production',completion:0.62,supervisor:'Priya Nair',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 22, 2026'},{done:true,lbl:'Material received',t:'May 1, 2026'},{done:true,lbl:'Production started',t:'May 7, 2026'},{done:false,lbl:'QC',t:'May 25, 2026'},{done:false,lbl:'Dispatch',t:'May 28, 2026'}]},
   {id:'JOB-003',customer:'GlobalMech',po:'PO-2024-003',product:'Hydraulic Valve Set',qty:300,priority:'🟢 Normal',factory:'Factory 1',orderDate:'2026-04-27',deliveryDate:'2026-06-06',procStart:'2026-04-29',matArrival:'2026-05-07',prodStart:'2026-05-12',qcDate:'2026-06-02',dispatchDate:'2026-06-05',status:'QC',completion:0.75,supervisor:'Rahul Sharma',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 27, 2026'},{done:true,lbl:'Material received',t:'May 7, 2026'},{done:true,lbl:'Production started',t:'May 12, 2026'},{done:true,lbl:'Production complete → QC',t:'May 17, 2026'},{done:false,lbl:'QC complete',t:'Jun 2, 2026'},{done:false,lbl:'Dispatch',t:'Jun 5, 2026'}]},
   {id:'JOB-004',customer:'Vertex Corp',po:'PO-2024-004',product:'Gearbox Housing',qty:80,priority:'🟡 High',factory:'Factory 2',orderDate:'2026-05-02',deliveryDate:'2026-05-25',procStart:'2026-05-03',matArrival:'2026-05-11',prodStart:'2026-05-15',qcDate:'2026-05-22',dispatchDate:'2026-05-24',status:'In Production',completion:0.62,supervisor:'Amir Khan',remarks:'Tight deadline',docs:[],tl:[{done:true,lbl:'PO received',t:'May 2, 2026'},{done:true,lbl:'Material received',t:'May 11, 2026'},{done:true,lbl:'Production started',t:'May 15, 2026'},{done:false,lbl:'QC',t:'May 22, 2026'},{done:false,lbl:'Dispatch',t:'May 24, 2026'}]},
@@ -2091,9 +2092,11 @@ function extractAllFields(text, filename){
   }
 
   out.category=(typeof categorise==='function')?categorise(t.toLowerCase()):'Other';
+  out.materials = extractMaterials(t);
+  if(out.materials.length) hits++;
   const np=[];
   if(out.requisitions.length)np.push('Req: '+out.requisitions.join(', '));
-  if(items.length)np.push(items.length+' item(s)');
+  if(out.materials.length)np.push(out.materials.length+' material(s)');
   out.notes=np.join(' · ')||('Imported from '+filename);
   out.confidence=Math.min(100,Math.round((hits/6)*100));
   return out;
@@ -2111,6 +2114,49 @@ function wordsToNum(str){
     else if(w in scales){ cur=(cur||1)*scales[w]; total+=cur; cur=0; }
   });
   return total+cur;
+}
+
+// ── MATERIAL / LINE-ITEM EXTRACTOR — pulls requisition materials from PO ──
+function extractMaterials(text){
+  const t=(text||'').replace(/\r/g,'');
+  const lines=t.split('\n').map(l=>l.replace(/\t/g,' '));
+  const items=[]; const seen=new Set();
+  const UNITS=['pcs','pc','set','sets','piece','job','nos','no','unit','kg','mtr','mt','ea','feet','ft','inch','litre','ltr','meter'];
+  const unitRe=new RegExp('\\b('+UNITS.join('|')+')\\b','i');
+  const clean=s=>(s||'').replace(/[|]+/g,' ').replace(/\s{2,}/g,' ').replace(/\s+/g,' ').trim().replace(/\s*[-–]\s*$/,'').replace(/^[-–\s]+/,'').replace(/^\d{5,}\s+/,'').trim();
+  const STOP=/grand\s*total|^\s*total\b|^\s*gross\b|net\s*payable|in[-\s]?words?|terms\s*(&|and)|amount\s*in\s*words|other\s*charges|\bvat\b\s*[\d:]|delivery\s*:|payment\s*(may|term|days)|mode\s*of\s*transport|prepared\s*by|thanking|remarks|contact\s*person|bin\s*(no|address)|intellectual|investigation|property\s*right/i;
+  const isHeader=d=>/^(item|description|brand|material\s*(code|description)|sl|uom|qty|rate|amount|unit|origin|specification|indent|cs\s*no|particular|line|product)\b/i.test((d||'').trim());
+  const isJunk=d=>{d=clean(d);return !d||d.length<4||!/[A-Za-z]{3,}/.test(d)||isHeader(d)||STOP.test(d);};
+  const stripReq=s=>s.replace(/\b(?:RE|CS|PR|SPR)--?\s*\d+/gi,' ').replace(/\b[A-Z]{2,6}\/\d{4}\/\w+/g,' ');
+  function numbersIn(s){const out=[];let m;const re=/(\d[\d,]*\.\d{1,4}|\d[\d,]{3,}|\d+\.?\d*)/g;while((m=re.exec(s))){const v=parseFloat(m[0].replace(/,/g,''));if(!isNaN(v))out.push({raw:m[0],val:v,idx:m.index,dec:/\.\d{2}/.test(m[0])});}return out;}
+  function pushItem(sl,material,qty,unit,rate,amount){material=clean(material);if(isJunk(material))return;const amt=parseFloat(String(amount).replace(/,/g,''))||0;if(amt<=0)return;const key=material.toLowerCase().slice(0,28)+'|'+amt;if(seen.has(key))return;seen.add(key);items.push({sl:String(sl||items.length+1),material,qty:qty?String(qty):'',unit:unit||'',rate:rate?String(rate):'',amount:String(amt)});}
+  function assign(nums){if(!nums.length)return null;const amount=nums[nums.length-1].val;let rate,qty;if(nums.length>=3){rate=nums[nums.length-2].val;qty=nums[nums.length-3].val;}else if(nums.length===2){qty=nums[0].val;}return{qty,rate,amount};}
+  for(let i=0;i<lines.length;i++){
+    let ln=lines[i];
+    if(STOP.test(ln))continue;
+    const slm=ln.match(/^\s*(\d{1,3})[.)]?\s+(.*)$/);
+    if(!slm||isHeader(slm[2]))continue;
+    const sl=slm[1]; let rest=stripReq(slm[2]); let nums=numbersIn(rest);
+    if(nums.length>=2&&nums.some(n=>n.dec)){
+      const tailCount=Math.min(nums.length,nums.length>=3?3:2);
+      const cutIdx=nums[nums.length-tailCount].idx;
+      const desc=rest.slice(0,cutIdx); const a=assign(nums); const u=rest.match(unitRe);
+      if(a&&a.amount>0)pushItem(sl,desc,a.qty,u?u[1]:'',a.rate,a.amount);
+      continue;
+    }
+    let desc=rest,j=i+1,guard=0,numsLine=null;
+    while(j<lines.length&&guard<4){
+      const nx=lines[j];
+      if(STOP.test(nx))break;
+      if(/^\s*\d{1,3}[.)]\s+[A-Za-z]/.test(nx))break;
+      const nn=numbersIn(stripReq(nx));
+      if(nn.length>=2&&nn.some(n=>n.dec)){numsLine=stripReq(nx);break;}
+      if(nx.trim()&&/[A-Za-z]{3,}/.test(nx))desc+=' '+nx.trim();
+      j++;guard++;
+    }
+    if(numsLine){const a=assign(numbersIn(numsLine));const u=numsLine.match(unitRe);if(a&&a.amount>0)pushItem(sl,desc,a.qty,u?u[1]:'',a.rate,a.amount);}
+  }
+  return items;
 }
 
 function showFinalForm(f, filename, rawText, method){
@@ -2132,8 +2178,14 @@ function showFinalForm(f, filename, rawText, method){
       <div class="fg"><label class="fl">Delivery Date</label><input type="date" class="fc" id="ex-due" value="${f.dueDate}"></div>
     </div>
     <div class="fg"><label class="fl">Vendor / Customer</label><input class="fc" id="ex-ven" value="${f.vendorName||''}"></div>
-    <div class="fg"><label class="fl">Requisitions (comma-separated — one PO can have multiple)</label><input class="fc" id="ex-reqs" value="${(f.requisitions||[]).join(', ')}" placeholder="PR-2026-000317, RE--005563"></div>
-    <div class="fg"><label class="fl">Item / Description</label><input class="fc" id="ex-item" value="${f.itemDescription||''}"></div>
+    <div class="fg">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="fl" style="margin:0">Materials / Requisitions <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— one PO can have multiple; verify &amp; edit below</span></label>
+        <button class="btn btn-sm" type="button" onclick="exAddMaterial()"><i class="ti ti-plus"></i>Add</button>
+      </div>
+      <div id="ex-materials"></div>
+    </div>
+    <div class="fg"><label class="fl">Item / Description (summary)</label><input class="fc" id="ex-item" value="${f.itemDescription||''}"></div>
     <div class="fc-row">
       <div class="fg"><label class="fl">Category</label><select class="fc" id="ex-cat">${['Machinery','Electronics','Safety','Furniture','IT','Raw Materials','Other'].map(c=>`<option ${f.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
       <div class="fg"><label class="fl">Priority</label><select class="fc" id="ex-pri"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
@@ -2144,8 +2196,34 @@ function showFinalForm(f, filename, rawText, method){
       <button class="btn" onclick="document.getElementById('pdf-status').innerHTML='';document.getElementById('pdf-file-inp').value=''">Cancel</button>
       <button class="btn btn-p" onclick="confirmExtract()"><i class="ti ti-check"></i>Confirm &amp; Import</button>
     </div>`;
+  window._exMaterials = (f.materials && f.materials.length) ? f.materials.map(m=>({...m})) : [{sl:'1',material:'',qty:'',unit:'',rate:'',amount:''}];
+  exRenderMaterials();
 }
-// ── FALLBACK: raw binary text extraction ──
+
+function exMaterialsHTML(){
+  const mats = window._exMaterials||[];
+  return `<table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead><tr>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:34px">#</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600">Material / Description</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:56px">Qty</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:70px">Rate</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:80px">Amount</th>
+      <th style="width:32px"></th>
+    </tr></thead>
+    <tbody>${mats.map((m,i)=>`<tr>
+      <td style="padding:2px 4px;color:var(--muted)">${i+1}</td>
+      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${(m.material||'').replace(/"/g,'&quot;')}" oninput="_exMaterials[${i}].material=this.value"></td>
+      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${m.qty||''}" oninput="_exMaterials[${i}].qty=this.value"></td>
+      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${m.rate||''}" oninput="_exMaterials[${i}].rate=this.value"></td>
+      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${m.amount||''}" oninput="_exMaterials[${i}].amount=this.value"></td>
+      <td style="padding:2px 4px"><button class="btn btn-icon btn-sm btn-err" type="button" onclick="exRemoveMaterial(${i})" ${mats.length<=1?'disabled':''}><i class="ti ti-x"></i></button></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+function exRenderMaterials(){ const el=document.getElementById('ex-materials'); if(el) el.innerHTML=exMaterialsHTML(); }
+function exAddMaterial(){ window._exMaterials=window._exMaterials||[]; window._exMaterials.push({sl:String(window._exMaterials.length+1),material:'',qty:'',unit:'',rate:'',amount:''}); exRenderMaterials(); }
+function exRemoveMaterial(i){ window._exMaterials.splice(i,1); exRenderMaterials(); }
 function fallbackBinaryExtract(arrayBuffer){
   try {
     const bytes = new Uint8Array(arrayBuffer);
@@ -2512,10 +2590,13 @@ function confirmExtract(){
   const cat=document.getElementById('ex-cat').value;
   const today=new Date().toISOString().slice(0,10);
   const dd=document.getElementById('ex-due').value||new Date(Date.now()+45*86400000).toISOString().slice(0,10);
-  const reqs=(document.getElementById('ex-reqs')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const materials=(window._exMaterials||[]).filter(m=>(m.material||'').trim()).map((m,i)=>({
+    sl:String(i+1), material:(m.material||'').trim(),
+    qty:m.qty||'', unit:m.unit||'', rate:m.rate||'', amount:m.amount||''
+  }));
   jobs.unshift({
     id,customer:document.getElementById('ex-ven').value,po:id,
-    requisitions:reqs,
+    materials:materials,
     product:document.getElementById('ex-item').value,
     qty:parseInt(document.getElementById('ex-amt').value)||0,
     priority:'🟢 Normal',factory:'Factory 1',
@@ -3583,6 +3664,7 @@ function renderPanelContent(){
   const body=document.getElementById('panel-body');
   const foot=document.getElementById('panel-foot');
   if(curTab==='details') renderPanelDetails(j,body,foot);
+  else if(curTab==='materials') renderPanelMaterials(j,body,foot);
   else if(curTab==='timeline') renderPanelTimeline(j,body,foot);
   else if(curTab==='docs') renderPanelDocs(j,body,foot);
   else if(curTab==='ai') renderPanelAI(j,body,foot);
@@ -3631,6 +3713,82 @@ function renderPanelDetails(j,body,foot){
       <option value="">Change Status…</option>
       ${STATUS_LIST.map(s=>`<option value="${s}" ${j.status===s?'selected':''}>${s}</option>`).join('')}
     </select>`;
+}
+
+function renderPanelMaterials(j,body,foot){
+  const mats=(j.materials||[]);
+  const fmt=n=>{const v=parseFloat(String(n).replace(/,/g,''));return isNaN(v)?'—':v.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  let total=0; mats.forEach(m=>{const v=parseFloat(String(m.amount).replace(/,/g,''));if(!isNaN(v))total+=v;});
+  if(!mats.length){
+    body.innerHTML=`<div class="empty" style="padding:30px 16px;text-align:center;color:var(--muted)">
+      <i class="ti ti-package-off" style="font-size:34px;display:block;margin-bottom:10px;opacity:.5"></i>
+      <div style="font-weight:600;margin-bottom:4px">No materials recorded</div>
+      <div style="font-size:12px">This PO has no material/requisition line items yet.${canDo('Edit PO')?' Use Edit to add them, or re-import the PO.':''}</div>
+    </div>`;
+    foot.innerHTML=`${canDo('Edit PO')?`<button class="btn btn-sm btn-p" onclick="editMaterials('${j.id}')"><i class="ti ti-plus"></i>Add Materials</button>`:''}`;
+    return;
+  }
+  body.innerHTML=`
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-family:var(--mono)">${mats.length} material(s) / requisition(s) on this PO</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:30px">#</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase">Material / Description</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:50px">Qty</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:80px">Rate</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:90px">Amount</th>
+      </tr></thead>
+      <tbody>${mats.map((m,i)=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:7px 8px;color:var(--muted)">${m.sl||(i+1)}</td>
+        <td style="padding:7px 8px">${(m.material||'').replace(/</g,'&lt;')}${m.unit?` <span style="color:var(--muted);font-size:10px">(${m.unit})</span>`:''}</td>
+        <td style="padding:7px 8px;text-align:right">${m.qty||'—'}</td>
+        <td style="padding:7px 8px;text-align:right">${m.rate?fmt(m.rate):'—'}</td>
+        <td style="padding:7px 8px;text-align:right;font-weight:600">${m.amount?fmt(m.amount):'—'}</td>
+      </tr>`).join('')}
+        <tr><td colspan="4" style="padding:8px;text-align:right;font-weight:700;border-top:2px solid var(--border)">Total</td>
+        <td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);border-top:2px solid var(--border)">${fmt(total)}</td></tr>
+      </tbody>
+    </table>`;
+  foot.innerHTML=`${canDo('Edit PO')?`<button class="btn btn-sm" onclick="editMaterials('${j.id}')"><i class="ti ti-edit"></i>Edit Materials</button>`:''}
+    <button class="btn btn-sm" onclick="exportMaterialsCSV('${j.id}')"><i class="ti ti-download"></i>Export CSV</button>`;
+}
+
+function editMaterials(id){
+  const j=jobs.find(x=>x.id===id); if(!j) return;
+  j.materials=j.materials||[];
+  const body=document.getElementById('panel-body');
+  window._editMats=j.materials.map(m=>({...m}));
+  const draw=()=>{
+    body.innerHTML=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Edit materials for ${id}. Changes save when you click Save.</div>
+      <div id="em-rows"></div>
+      <button class="btn btn-sm" type="button" onclick="emAdd()" style="margin-top:8px"><i class="ti ti-plus"></i>Add Material</button>`;
+    document.getElementById('em-rows').innerHTML=window._editMats.map((m,i)=>`<div class="frow" style="gap:6px;margin-bottom:6px">
+      <input class="fc" style="flex:3;padding:6px 8px;font-size:11px" placeholder="Material" value="${(m.material||'').replace(/"/g,'&quot;')}" oninput="_editMats[${i}].material=this.value">
+      <input class="fc" style="flex:1;padding:6px 8px;font-size:11px" placeholder="Qty" value="${m.qty||''}" oninput="_editMats[${i}].qty=this.value">
+      <input class="fc" style="flex:1.2;padding:6px 8px;font-size:11px" placeholder="Rate" value="${m.rate||''}" oninput="_editMats[${i}].rate=this.value">
+      <input class="fc" style="flex:1.4;padding:6px 8px;font-size:11px" placeholder="Amount" value="${m.amount||''}" oninput="_editMats[${i}].amount=this.value">
+      <button class="btn btn-icon btn-sm btn-err" type="button" onclick="emDel(${i})"><i class="ti ti-x"></i></button>
+    </div>`).join('')||'<div style="color:var(--muted);font-size:12px;padding:10px">No materials. Click Add.</div>';
+  };
+  window.emAdd=()=>{window._editMats.push({sl:String(window._editMats.length+1),material:'',qty:'',unit:'',rate:'',amount:''});draw();};
+  window.emDel=i=>{window._editMats.splice(i,1);draw();};
+  draw();
+  document.getElementById('panel-foot').innerHTML=`
+    <button class="btn btn-sm" onclick="renderPanelContent()">Cancel</button>
+    <button class="btn btn-sm btn-p" onclick="saveMaterials('${id}')"><i class="ti ti-check"></i>Save</button>`;
+}
+function saveMaterials(id){
+  const j=jobs.find(x=>x.id===id); if(!j) return;
+  j.materials=(window._editMats||[]).filter(m=>(m.material||'').trim()).map((m,i)=>({sl:String(i+1),material:m.material.trim(),qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:m.amount||''}));
+  showNotif('Materials saved',j.materials.length+' material(s) updated for '+id,'success');
+  renderPanelContent();
+}
+function exportMaterialsCSV(id){
+  const j=jobs.find(x=>x.id===id); if(!j||!j.materials) return;
+  const rows=[['SL','Material','Qty','Unit','Rate','Amount'],...j.materials.map((m,i)=>[m.sl||i+1,m.material,m.qty,m.unit,m.rate,m.amount])];
+  const csv=rows.map(r=>r.map(c=>`"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=id+'_materials.csv'; a.click(); URL.revokeObjectURL(url);
 }
 
 function renderPanelTimeline(j,body,foot){
