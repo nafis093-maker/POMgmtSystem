@@ -1783,10 +1783,28 @@ function downloadCSV(csv,filename){
 // ═══════════════════════════════════════
 function renderImport(){
   const gmOk = integrations.gmail.connected;
+  const daiOn = localStorage.getItem('mew-dai-enabled')==='1';
   return `<div style="max-width:640px">
-    <div class="alert alert-info" style="margin-bottom:16px">
-      <i class="ti ti-cpu"></i>
-      <div><strong>100% Local PDF Extraction.</strong> All processing runs in your browser — no data sent to any server. Uses PDF.js + smart pattern recognition.</div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:7px">
+        <i class="ti ti-cloud-cog" style="color:#4285F4"></i>Google Document AI (Invoice Parser)
+        <span class="int-badge ${daiOn?'connected-badge':'not-connected-badge'}">${daiOn?'✓ Enabled':'Off'}</span>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">When enabled, PDFs are sent to your Google Document AI processor (via your Vercel backend) for high-accuracy extraction of PO fields and material line items. Falls back to local extraction if the service is unavailable.</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;margin-bottom:8px">
+        <input type="checkbox" ${daiOn?'checked':''} onchange="toggleDocAI(this.checked)" style="width:16px;height:16px">
+        Use Google Document AI for extraction
+      </label>
+      <div class="fg" style="margin:0"><label class="fl">Backend endpoint</label>
+        <input class="fc" id="dai-endpoint" value="${(localStorage.getItem('mew-dai-endpoint')||'/api/extract-po').replace(/"/g,'&quot;')}" placeholder="/api/extract-po" onchange="localStorage.setItem('mew-dai-endpoint',this.value.trim())">
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">Default <code>/api/extract-po</code> works automatically on your Vercel deployment.</div>
+      </div>
+    </div>
+    <div class="alert ${daiOn?'alert-info':'alert-info'}" style="margin-bottom:16px">
+      <i class="ti ti-${daiOn?'cloud':'cpu'}"></i>
+      <div>${daiOn
+        ? '<strong>Document AI mode.</strong> PDFs go to your Vercel backend → Google Document AI. Material line items are parsed by Google&rsquo;s Invoice Parser.'
+        : '<strong>Local extraction mode.</strong> All processing runs in your browser — no data sent anywhere. Uses PDF.js + pattern recognition.'}</div>
     </div>
     <div class="upload-zone" id="upz"
       ondragover="event.preventDefault();this.classList.add('drag')"
@@ -1795,7 +1813,7 @@ function renderImport(){
       <input type="file" accept=".pdf" onchange="handleFileSelect(event)" id="pdf-file-inp">
       <i class="ti ti-file-type-pdf" style="color:var(--err)"></i>
       <h3>Drop a PO/Job PDF here or click to browse</h3>
-      <p>Runs entirely in your browser · No internet required for extraction</p>
+      <p>${daiOn?'Sent to Google Document AI for parsing':'Runs entirely in your browser · No internet required'}</p>
     </div>
     <div id="pdf-status"></div>
     <div class="card" style="margin-top:18px">
@@ -1811,6 +1829,12 @@ function renderImport(){
       }
     </div>
   </div>`;
+}
+
+function toggleDocAI(on){
+  localStorage.setItem('mew-dai-enabled', on?'1':'0');
+  showNotif('Document AI '+(on?'enabled':'disabled'), on?'PDFs will be parsed by Google Document AI.':'Using local browser extraction.','info');
+  render();
 }
 
 function handleDrop(e){
@@ -1900,6 +1924,38 @@ async function processPDF(file){
     buf = await file.arrayBuffer();
     log(`File read OK: ${buf.byteLength} bytes`,'ok');
   } catch(e){ log('ERROR reading file: '+e.message,'err'); return; }
+
+  // STEP 1b: If Google Document AI is enabled, try the backend first
+  if(localStorage.getItem('mew-dai-enabled')==='1'){
+    const endpoint = localStorage.getItem('mew-dai-endpoint') || '/api/extract-po';
+    log('Google Document AI enabled → uploading to '+endpoint,'info');
+    try {
+      // base64-encode the PDF
+      const bytes = new Uint8Array(buf.slice(0));
+      let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
+      const b64 = btoa(bin);
+      const resp = await fetch(endpoint, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ fileBase64:b64, mimeType:'application/pdf' })
+      });
+      const data = await resp.json();
+      if(!resp.ok || !data.ok) throw new Error(data.error || ('HTTP '+resp.status));
+      log('Document AI returned: PO='+data.poNumber+' Amt='+data.amount+' Materials='+(data.materials||[]).length,'ok');
+      const fields = {
+        poNumber:data.poNumber||'', poDate:data.poDate||'', dueDate:data.dueDate||'',
+        amount:parseFloat(data.amount)||0, vendorName:data.vendorName||'',
+        itemDescription:(data.materials&&data.materials[0]&&data.materials[0].material)||'',
+        materials:(data.materials||[]).map((m,i)=>({sl:String(i+1),material:m.material||'',qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:String(parseFloat(String(m.amount).replace(/[^0-9.\-]/g,''))||'')})),
+        requisitions:[], notes:((data.materials||[]).length+' material(s) · Google Document AI'),
+        category:'Other', confidence:90, warnings:data.warnings||[]
+      };
+      showFinalForm(fields, file.name, '', 'Google Document AI');
+      return;
+    } catch(e){
+      log('Document AI failed: '+e.message,'err');
+      log('Falling back to local browser extraction…','warn');
+    }
+  }
 
   // STEP 2: Extract text via PDF.js
   let rawText = '';
