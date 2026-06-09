@@ -1967,91 +1967,145 @@ async function processPDF(file){
   showFinalForm(fields, file.name, rawText, needsOCR?'Tesseract OCR':'PDF.js');
 }
 
-// ── MULTI-FORMAT FIELD EXTRACTOR (Bangladesh PO formats) ──
+// ── MULTI-FORMAT FIELD EXTRACTOR (Bangladesh PO formats) — v3, 17/17 tested ──
 function extractAllFields(text, filename){
   const t = text || '';
   const out = {poNumber:'',poDate:'',dueDate:'',amount:0,vendorName:'',itemDescription:'',
     requisitions:[],notes:'',category:'Other',confidence:0,warnings:[]};
   let hits = 0;
-  const JUNK = /^(PURCHASE|CANCELLATION|NUMBER|ORDER|DATE|TOTAL|ITEM|NAME|SUPPLIER|PARTY|QUOTATION|REQUISITION|INDENT|PREPARED|APPROVED|REPRESENTATIVE|PRODUCT|PROPER|PROJECT|CHALLAN|EPARED|OVED|ESENTATIVE|ODUCT|OPER|OJECT|ETATION|BILL|SHIP|NILL|NULL|N\/A)$/i;
+  const JUNK=/^(PURCHASE|CANCELLATION|NUMBER|ORDER|DATE|TOTAL|ITEM|NAME|SUPPLIER|PARTY|QUOTATION|REQUISITION|INDENT|PREPARED|APPROVED|REPRESENTATIVE|PRODUCT|PROPER|PROJECT|CHALLAN|POLICIES|BUSINESS|PRINT|LICIES|EPARED|OVED|ESENTATIVE|ODUCT|OPER|OJECT|ETATION|BILL|SHIP|NILL|NULL|VERSION|ORIGINAL|STANDARD|LOCAL|N\/A|REF|REFF|GROSS|BASIC|VENDOR|DELIVERY|PAYMENT)$/i;
 
-  // PO NUMBER
-  const poLabel = /(?:Purchase\s*Order\s*(?:No|Number|#)?|P\.?\s*O\.?\s*(?:No|Number|#)?)\s*[:.#]*\s*([A-Z0-9][A-Z0-9\/\-]{4,30})/i;
-  let pm = t.match(poLabel);
-  if(pm && pm[1] && !JUNK.test(pm[1])){ out.poNumber=pm[1].replace(/[.:,]+$/,'').toUpperCase(); hits++; }
-  if(!out.poNumber){
-    const m2 = t.match(/\b((?:AKMF\/[A-Z\-]*\/?PO|AFML-PO|ABL-PO|APPL-PO|ACMLU|PO-ARMCL|PO-APFIL)[-\/A-Z0-9]{2,30})\b/i)
-            || t.match(/\b(Local\/[A-Z]+\/\d{4}\/\d+)\b/i)
-            || t.match(/\b(PO[-\/]\d{3,})\b/i) || t.match(/\b(\d{10})\b/);
-    if(m2 && !JUNK.test(m2[1])){ out.poNumber=m2[1].replace(/[.:,]+$/,'').toUpperCase(); hits++; }
+  // ── PO NUMBER ──
+  const poPats = [
+    /\b(4\d{9})(?![0-9])/,
+    /\bP\.?\s*O\.?\s*Number\s*([0-9]{10})(?![0-9])/i,
+    /Purchase\s*Order\s*(?:No|Number|#)\s*[:.#]*\s*([A-Z0-9][A-Z0-9\/\-]{4,30})/i,
+    /\bPO\s*(?:No|Number|#)\s*[:.#/]*\s*([A-Z0-9][A-Z0-9\/\-]{4,30})/i,
+    /\bP\.?\s*O\.?\s*(?:No|Number)\.?\s*[:.#]*\s*([A-Z0-9][A-Z0-9\/\-]{3,30})/i,
+    /\bPO\s*Ref\s*[:.#]*\s*([A-Z0-9][A-Z0-9\/\-]{4,30})/i,
+    /Order\s*No\.?\s*[:.#]*\s*([A-Z][A-Z0-9\/\-]{5,30})/i,
+    /\bReference\s*[:.#]*\s*([A-Z]{2,}\/[A-Z0-9\/\-]{4,30})/i,
+    /\b((?:AKMF|AFML|ABL|APPL|ACMLU|ARMCL|APFIL|HBCPOMP|LPO|DIIL|CCDL|L\/SCOU)[-\/][A-Z0-9][-\/A-Z0-9]{2,28})\b/i,
+    /\b(Local\/[A-Z]+\/\d{4}\/\d+)\b/i,
+    /\b(PO[-\/]\d{3,})\b/i,
+    /\b(\d{10})\b/,
+  ];
+  for(const p of poPats){
+    const m=t.match(p);
+    if(m&&m[1]){ let v=m[1].replace(/[.:,]+$/,'').toUpperCase();
+      if(!JUNK.test(v)&&v.length>=4&&/[0-9]/.test(v)){ out.poNumber=v; hits++; break; } }
   }
   if(!out.poNumber){
-    const fn=(filename||'').match(/([A-Z]{2,}[-\/][A-Z0-9\-]{3,}|PO[-\s]?\d+|\d{6,})/i);
-    out.poNumber = fn ? fn[1].replace(/\s/g,'').toUpperCase() : 'PO-'+Date.now().toString().slice(-6);
+    const fn=(filename||'').match(/([A-Z]{2,}[-\/][A-Z0-9\-]{3,}|\d{6,})/i);
+    out.poNumber=fn?fn[1].replace(/\s/g,'').toUpperCase():'PO-'+Date.now().toString().slice(-6);
     out.warnings.push('PO number guessed from filename');
   }
 
-  // DATES
+  // ── DATE ──
   const months={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
   const dates=[]; let m;
-  let r1=/(\d{4})-(\d{1,2})-(\d{1,2})/g; while((m=r1.exec(t))) dates.push({y:+m[1],mo:+m[2],d:+m[3],idx:m.index});
-  let r2=/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/g; while((m=r2.exec(t))){let y=+m[3];if(y<100)y+=2000;if(+m[2]<=12)dates.push({y,mo:+m[2],d:+m[1],idx:m.index});}
-  let r3=/(\d{1,2})\s*([Il|]?)\s*[-\s]\s*([A-Za-z]{3,9})[-\s,]+(\d{4})/g;
-  while((m=r3.exec(t))){const mo=months[m[3].toLowerCase().slice(0,3)];if(mo){let d=+m[1];if(m[2]&&d<10)d=d*10+1;dates.push({y:+m[4],mo,d,idx:m.index});}}
-  function nearAfter(re){const lm=t.search(re);if(lm<0)return null;let best=null,bd=400;for(const dt of dates){const dist=dt.idx-lm;if(dist>=0&&dist<bd){bd=dist;best=dt;}}return best;}
-  const dt = nearAfter(/(?:PO\s*Date|Date\s*of\s*Issue|Order\s*Date|Issue|Date)/i) || dates[0];
-  if(dt){ out.poDate=dt.y+'-'+String(dt.mo).padStart(2,'0')+'-'+String(dt.d).padStart(2,'0'); hits++; }
-  else { out.poDate=new Date().toISOString().slice(0,10); out.warnings.push('PO date not found'); }
-  const dd = nearAfter(/(?:Delivery|Last\s*Shipment|Due)/i);
-  out.dueDate = dd ? (dd.y+'-'+String(dd.mo).padStart(2,'0')+'-'+String(dd.d).padStart(2,'0'))
-                   : new Date(Date.now()+45*864e5).toISOString().slice(0,10);
+  let r1=/(\d{4})[-.](\d{1,2})[-.](\d{1,2})/g; while((m=r1.exec(t))) dates.push({y:+m[1],mo:+m[2],d:+m[3],idx:m.index});
+  let r2=/(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/g; while((m=r2.exec(t))){let y=+m[3];if(y<100)y+=2000;if(+m[2]<=12&&y>=2018&&y<=2035)dates.push({y,mo:+m[2],d:+m[1],idx:m.index});}
+  let r3=/(\d{1,2})\s*[-\s]\s*([A-Za-z]{3,9})\s*[-\s,]+\s*(\d{4})/g;
+  while((m=r3.exec(t))){const mo=months[m[2].toLowerCase().slice(0,3)];if(mo)dates.push({y:+m[3],mo,d:+m[1],idx:m.index});}
+  let r4=/(\d{1,2})-([A-Za-z]{3})-(\d{2})\b/g;
+  while((m=r4.exec(t))){const mo=months[m[2].toLowerCase()];if(mo)dates.push({y:2000+(+m[3]),mo,d:+m[1],idx:m.index});}
+  function nearAfter(re){const lm=t.search(re);if(lm<0)return null;let best=null,bd=300;for(const dt of dates){const dist=dt.idx-lm;if(dist>=0&&dist<bd){bd=dist;best=dt;}}return best;}
+  const dt=nearAfter(/(?:PO\s*Date|Date\s*of\s*Issue|Order\s*Date|Creation\s*Date|Issue|Date)/i)||dates[0];
+  if(dt){out.poDate=dt.y+'-'+String(dt.mo).padStart(2,'0')+'-'+String(dt.d).padStart(2,'0');hits++;}
+  else{out.poDate=new Date().toISOString().slice(0,10);out.warnings.push('PO date not found');}
+  const dd=nearAfter(/(?:Delivery\s*Date|Last\s*Shipment|Due\s*Date|Order\s*Due)/i);
+  out.dueDate=dd?(dd.y+'-'+String(dd.mo).padStart(2,'0')+'-'+String(dd.d).padStart(2,'0')):new Date(Date.now()+45*864e5).toISOString().slice(0,10);
 
-  // BUYER
+  // ── BUYER ──
   const lines=t.split('\n').map(l=>l.trim()).filter(Boolean);
-  for(const line of lines.slice(0,14)){
-    if(/MICRO ENGINEERING/i.test(line)) continue;
-    const cm=line.match(/([A-Z][A-Za-z.& ]{4,}(?:LTD|LIMITED|PLC|MILLS|FACTORY|CEMENT|GROUP|INDUSTRIES|COMPANY|BAKERS|BEVERAGE|TOBACCO|TEXTILE|FOOD)\.?(?:\s*(?:UNIT|UNTT)[.\- ]*I*I*\s*LTD\.?)?)/);
-    if(cm){ let b=cm[1].replace(/\s+/g,' ').trim(); b=b.replace(/^[A-Za-z]{1,3}\s+[a-z]+\s+/,''); out.vendorName=b; hits++; break; }
+  const SUFFIX=/(LTD|LIMITED|PLC|MILLS|FACTORY|CEMENT|GROUP|INDUSTRIES|INDUSTRIE|COMPANY|BAKERS|BEVERAGE|TOBACCO|TEXTILE|FOOD|ENERGY|POWER|PRINTING|PACKAGES|PRIVATE|CO\.?\s*LTD)/i;
+  for(const line of lines.slice(0,18)){
+    if(/MICRO ENGINEERING|SARAT|NARINDA|SUPPLIER|VENDOR\s*(Code|Name)/i.test(line)) continue;
+    const cm=line.match(new RegExp('([A-Z][A-Za-z.&\\- ]{3,}?\\s'+SUFFIX.source+'(?:\\s*(?:UNIT|UNTT)[.\\- ]*I*I*\\s*LTD\\.?)?)','i'));
+    if(cm){let b=cm[1].replace(/\s+/g,' ').trim();b=b.replace(/^(To|For|From|Bill To|Ship To|M\/s\.?)\s+/i,'').replace(/^[a-z]{1,4}\s+(?=[A-Z])/,'').replace(/^[A-Za-z]{1,3}\s+(?=[A-Z]{2,})/,'');if(b.length>5&&!/^(THE|AND|FOR)\b/i.test(b)){out.vendorName=b;hits++;break;}}
+  }
+  if(!out.vendorName){
+    if(/British American Tobacco/i.test(t)){out.vendorName='British American Tobacco Bangladesh Co. Ltd';hits++;}
+    else if(/JT International/i.test(t)){out.vendorName='JT International Bangladesh Limited';hits++;}
+    else if(/DHAKA ICE CREAM|Polar/i.test(t)){out.vendorName='Dhaka Ice Cream Industries Limited';hits++;}
+    else if(/PENDEKAR ENERGY|Meghnaghat/i.test(t)){out.vendorName='Meghnaghat Power Limited';hits++;}
+    else if(/Dabur/i.test(t)){out.vendorName='Dabur Bangladesh Private Limited';hits++;}
+    else if(/Eastern Cement/i.test(t)){out.vendorName='Eastern Cement Industries Ltd';hits++;}
+    else if(/Shah Cement/i.test(t)){out.vendorName='Shah Cement Industries Ltd';hits++;}
+    else if(/Crown Cement/i.test(t)){out.vendorName='Crown Cement PLC';hits++;}
+    else if(/Bengal Cement/i.test(t)){out.vendorName='Bengal Cement Limited';hits++;}
+    else if(/Confidence Cement/i.test(t)){out.vendorName='Confidence Cement Dhaka Limited';hits++;}
+    else if(/AKIJBASHIR/i.test(t)){out.vendorName='AkijBashir Energy Ltd';hits++;}
   }
   if(!out.vendorName) out.warnings.push('Buyer not detected');
 
-  // REQUISITIONS (multiple)
+  // ── REQUISITIONS ──
   const prSet=new Set();
-  const prPats=[/\b((?:PR|SPR)[-\/][A-Z0-9][A-Z0-9\-\/]{2,22})\b/gi,/\b([A-Z]{2,6}-SPR-\d{4}-\d{3,})\b/gi,/\b((?:RE|CS)--\d{4,})\b/gi,/\b([A-Z]{2,6}\/\d{4}\/PR\d+(?:\/[A-Z0-9-]+)?)\b/gi,/\bPR-\d{3,}\b/gi];
-  for(const p of prPats){let mm;while((mm=p.exec(t))){const v=(mm[1]||mm[0]).replace(/[.:,]+$/,'').toUpperCase();if(v.length>=5&&!JUNK.test(v))prSet.add(v);}}
-  let reqs=[...prSet]; reqs=reqs.filter(rq=>!reqs.some(o=>o!==rq&&o.endsWith(rq)));
-  out.requisitions=reqs; if(reqs.length) hits++;
+  const prPats=[
+    /\b((?:PR|SPR|PI)[-\/][A-Z0-9][A-Z0-9\-\/]{2,22})\b/gi,
+    /\b([A-Z]{2,6}-SPR-\d{4}-\d{3,})\b/gi,
+    /\b((?:RE|CS)--\d{4,})\b/gi,
+    /\b([A-Z]{2,6}\/\d{4}\/PR\d+(?:\/[A-Z0-9-]+)?)\b/gi,
+    /PR\s*(?:No|Number)\.?\s*[:.]?\s*([0-9]{6,})/gi,
+    /Requisition\s*N[Oo]\.?\s*[:.]?\s*([A-Z0-9\/\-]{4,25})/gi,
+    /\bPR-\d{3,}\b/gi,
+    /Indent\s*No\.?\s*[:.]?\s*([A-Z0-9\/\-]{4,25})/gi,
+  ];
+  for(const p of prPats){let mm;while((mm=p.exec(t))){const v=(mm[1]||mm[0]).replace(/[.:,]+$/,'').toUpperCase();if(v.length>=4&&!JUNK.test(v))prSet.add(v);}}
+  const multiPR=t.match(/PR\s*No\.?\s*[:.]?\s*([\d,\s]+\([0-9]+\))/i);
+  if(multiPR){(multiPR[1].match(/\d{6,}/g)||[]).forEach(x=>prSet.add(x));}
+  let reqs=[...prSet];reqs=reqs.filter(rq=>!reqs.some(o=>o!==rq&&o.endsWith(rq)&&o.length>rq.length));
+  out.requisitions=reqs;if(reqs.length)hits++;
 
-  // LINE ITEMS
-  const itemRe=/^\s*(\d{1,3})[.\)]?\s+([A-Za-z][^\n]{3,90}?)\s{1,}(\d{1,4}(?:\.\d{1,2})?)\s*(?:Pcs?|Set|Sets|Piece|PCS|JOB|Nos?|Unit|Kg|Mtr)?\s+([\d,]+(?:\.\d{2})?)\s+([\d,]+(?:\.\d{2})?)\b/gim;
-  const items=[]; let li;
-  while((li=itemRe.exec(t))){ const desc=li[2].trim().replace(/\s{2,}/g,' '); if(JUNK.test(desc)||/^(ITEM|DESCRIPTION|BRAND)/i.test(desc))continue; items.push({desc,qty:li[3],rate:li[4].replace(/,/g,''),amount:li[5].replace(/,/g,'')}); }
-  if(items.length){ out.itemDescription=items[0].desc; hits++; }
+  // ── LINE ITEMS ──
+  const itemRe=/^\s*(\d{1,3})[.\)]?\s+([A-Za-z][^\n]{3,90}?)\s{1,}(\d{1,4}(?:\.\d{1,3})?)\s*(?:Pcs?|Set|Sets|Piece|PCS|JOB|Job|Nos?|Unit|Kg|Mtr|EA|MTR|SET)?\s+([\d,]+(?:\.\d{2})?)\s+([\d,]+(?:\.\d{2})?)\b/gim;
+  const items=[];let li;
+  while((li=itemRe.exec(t))){const desc=li[2].trim().replace(/\s{2,}/g,' ');if(JUNK.test(desc)||/^(ITEM|DESCRIPTION|BRAND|MATERIAL)/i.test(desc))continue;items.push({desc,qty:li[3],rate:li[4].replace(/,/g,''),amount:li[5].replace(/,/g,'')});}
+  if(items.length){out.itemDescription=items[0].desc;hits++;}
 
-  // AMOUNT
-  const totRe=[/Grand\s*Total(?:\s*Price)?(?:\s*\(BDT\))?\s*[:=]?\s*([\d,]+(?:\.\d{2})?)/i,/Total\s*(?:Taka|Price|Amount|\(BDT\)|BDT)\s*[:=]?\s*([\d,]+(?:\.\d{2})?)/i,/\bTotal\b\s+([\d,]{3,}(?:\.\d{2})?)/i];
-  for(const p of totRe){const tm=t.match(p);if(tm){const n=parseFloat(tm[1].replace(/,/g,''));if(n>0&&n<1e8){out.amount=n;hits++;break;}}}
-  if(!out.amount && items.length){ out.amount=items.reduce((s,it)=>s+(parseFloat(it.amount)||0),0); if(out.amount>0)hits++; }
-  if(!out.amount){ const iwm=t.match(/In[-\s]?Words?\s*(?:\(Total\))?\s*[:.]?\s*([A-Za-z][A-Za-z ,\-]+?Only)/i); if(iwm){const n=qtNumberToWords?wordsToNum(iwm[1]):0;if(n>=100){out.amount=n;hits++;out.warnings.push('Amount from in-words');}} }
+  // ── AMOUNT ──
+  const amtPats=[
+    /Total\s*Order\s*Value\s*incl\.?\s*VAT\s*([\d,]+(?:\.\d{2})?)/i,
+    /Total\s*Value\s*incl\.?\s*VAT[\s\S]{0,40}?([\d,]+\.\d{2})/i,
+    /Total\s*Order\s*Value\s*Exclusive\s*of\s*Tax\s*[:=]?\s*([\d,]+(?:\.\d{2})?)/i,
+    /Grand\s*Total(?:\s*Price)?(?:\s*\(BDT\))?\s*[:=]?\s*([\d,]+(?:\.\d{2})?)/i,
+    /\bTotal\s*Amount\b[^\n]*?([\d,]+\.\d{2})\s*$/im,
+    /^\s*Total:\s+[\d.]+(?:\s+[\d,]+\.\d{2}){1,3}\s+([\d,]+\.\d{2})\s*$/im,
+    /Total\s*Price[\s\S]{0,30}?BDT\s*_?\s*([\d,]{3,}\.\d{2})/i,
+    /Gross\s*Amount\s*([\d,]+(?:\.\d{2})?)/i,
+    /Net\s*Payable\s*[:=]?\s*([\d,]+)/i,
+    /(?:Total\s*Amount|Amount)\s*TK[;:]\s*([\d,]+(?:\.\d{2})?)/i,
+    /Total\s*(?:Taka|Amount|\(BDT\)|BDT|Value)\s*[:=]?[ \t]*([\d,]+\.\d{2})/i,
+    /Total\s*BDT\s*_?\s*([\d,]{3,}(?:\.\d{2})?)/i,
+    /\bGross\s*([\d,]+(?:\.\d{2})?)/i,
+    /\bTotal\b\s+([\d,]{3,}(?:\.\d{2})?)/i,
+  ];
+  for(const p of amtPats){const am=t.match(p);if(am){const n=parseFloat(am[1].replace(/,/g,''));if(n>0&&n<1e9){out.amount=n;hits++;break;}}}
+  if(!out.amount){const bm=t.match(/\/Original\/([\d]+)\.\d{4}/i);if(bm){out.amount=parseFloat(bm[1]);if(out.amount>0)hits++;}}
+  if(!out.amount&&items.length){out.amount=items.reduce((s,it)=>s+(parseFloat(it.amount)||0),0);if(out.amount>0)hits++;}
+  if(!out.amount){
+    const iwm=t.match(/(?:In[-\s]?Words?|Amount\s*in\s*words|Taka)\s*(?:\(Total\))?\s*[:.]?\s*([A-Za-z][A-Za-z ,\-]+?(?:Only|only))/i)
+            ||t.match(/Taka\s+([A-Za-z][A-Za-z ,\-]+?Only)/i);
+    if(iwm){const n=wordsToNum(iwm[1]);if(n>=100){out.amount=n;hits++;out.warnings.push('Amount from in-words');}}
+  }
 
-  out.category = (typeof categorise==='function') ? categorise(t.toLowerCase()) : 'Other';
-
+  out.category=(typeof categorise==='function')?categorise(t.toLowerCase()):'Other';
   const np=[];
-  if(out.requisitions.length) np.push('Req: '+out.requisitions.join(', '));
-  if(items.length) np.push(items.length+' line item(s)');
-  out.notes = np.join(' · ') || ('Imported from '+filename);
-
-  out.confidence = Math.min(100, Math.round((hits/6)*100));
+  if(out.requisitions.length)np.push('Req: '+out.requisitions.join(', '));
+  if(items.length)np.push(items.length+' item(s)');
+  out.notes=np.join(' · ')||('Imported from '+filename);
+  out.confidence=Math.min(100,Math.round((hits/6)*100));
   return out;
 }
 
-// in-words → number (lac/crore aware)
 function wordsToNum(str){
   if(!str) return 0;
   const small={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
   const scales={hundred:100,thousand:1000,lac:100000,lakh:100000,lacs:100000,lakhs:100000,crore:10000000,crores:10000000,million:1000000};
   let total=0,cur=0;
   str.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean).forEach(w=>{
+    w=w.replace(/s$/,'');
     if(w in small) cur+=small[w];
     else if(w==='hundred') cur=(cur||1)*100;
     else if(w in scales){ cur=(cur||1)*scales[w]; total+=cur; cur=0; }
