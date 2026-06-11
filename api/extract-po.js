@@ -98,6 +98,17 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method === 'GET') {
+    // Health check: visit /api/extract-po in a browser to verify configuration
+    const oauth = !!(process.env.GCP_OAUTH_CLIENT_ID && process.env.GCP_OAUTH_CLIENT_SECRET && process.env.GCP_OAUTH_REFRESH_TOKEN);
+    const sa = !!(process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY);
+    return res.status(200).json({
+      ok: true, service: 'extract-po',
+      authMode: oauth ? 'oauth' : (sa ? 'service-account' : 'NOT CONFIGURED'),
+      project: PROJECT(), location: LOCATION(), processor: PROCESSOR(),
+      hint: oauth||sa ? 'Ready. POST a PDF as {fileBase64, mimeType}.' : 'Set GCP_OAUTH_CLIENT_ID + GCP_OAUTH_CLIENT_SECRET + GCP_OAUTH_REFRESH_TOKEN in Vercel env vars, then redeploy.'
+    });
+  }
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
 
   const hasOAuth = process.env.GCP_OAUTH_CLIENT_ID && process.env.GCP_OAUTH_CLIENT_SECRET && process.env.GCP_OAUTH_REFRESH_TOKEN;
