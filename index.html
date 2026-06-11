@@ -1930,6 +1930,10 @@ async function processPDF(file){
     const endpoint = localStorage.getItem('mew-dai-endpoint') || '/api/extract-po';
     log('Google Document AI enabled → uploading to '+endpoint,'info');
     try {
+      // Vercel functions reject bodies > ~4.5 MB; base64 grows the file ~33%
+      if(buf.byteLength > 3.2*1024*1024){
+        throw new Error('PDF is '+(buf.byteLength/1048576).toFixed(1)+' MB — exceeds the ~3 MB upload limit for the backend. Using local extraction instead.');
+      }
       // base64-encode the PDF
       const bytes = new Uint8Array(buf.slice(0));
       let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
@@ -1938,7 +1942,10 @@ async function processPDF(file){
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ fileBase64:b64, mimeType:'application/pdf' })
       });
-      const data = await resp.json();
+      const rawText = await resp.text();
+      let data;
+      try { data = JSON.parse(rawText); }
+      catch(pe){ throw new Error('Backend returned non-JSON (HTTP '+resp.status+'): '+rawText.slice(0,140).replace(/</g,'')); }
       if(!resp.ok || !data.ok) throw new Error(data.error || ('HTTP '+resp.status));
       log('Document AI returned: PO='+data.poNumber+' Amt='+data.amount+' Materials='+(data.materials||[]).length,'ok');
       const fields = {
