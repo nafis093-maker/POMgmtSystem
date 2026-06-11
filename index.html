@@ -2151,7 +2151,7 @@ function extractAllFields(text, filename){
   }
 
   out.category=(typeof categorise==='function')?categorise(t.toLowerCase()):'Other';
-  out.materials = extractMaterials(t);
+  out.materials = extractMaterials(t, {itemDescription: out.itemDescription, amount: out.amount});
   if(out.materials.length) hits++;
   const np=[];
   if(out.requisitions.length)np.push('Req: '+out.requisitions.join(', '));
@@ -2176,10 +2176,11 @@ function wordsToNum(str){
 }
 
 // ── MATERIAL / LINE-ITEM EXTRACTOR (v4) — region-bounded, multi-strategy ──
-function extractMaterials(text){
+// v5 — adds AFML wrapped-row strategy, Dabur/SAP strategy, and synthesis fallback
+function extractMaterials(text, fallback){
   let t=(text||'').replace(/\r/g,'');
   let headerIdx=-1;
-  const hdrRe=/(item|sl|line)\b.*\b(description|material|particular)\b|(qty|quantity)\b.*\b(rate|unit\s*price|amount)\b|description.*qty.*(rate|price|amount)|order\s*qty.*unit\s*price/i;
+  const hdrRe=/(item|sl|line|s\.no)\b.*\b(description|material|particular|name)\b|(qty|quantity)\b.*\b(rate|unit\s*price|amount)\b|description.*qty.*(rate|price|amount)|order\s*qty.*unit\s*price/i;
   const allLines=t.split('\n');
   let charPos=0,headerCharStart=0;
   for(let k=0;k<allLines.length;k++){ if(hdrRe.test(allLines[k])){headerIdx=k;headerCharStart=charPos;break;} charPos+=allLines[k].length+1; }
@@ -2196,17 +2197,56 @@ function extractMaterials(text){
   const unitRe=new RegExp('\\b('+UNITS.join('|')+')\\b','i');
   const clean=s=>(s||'').replace(/[|]+/g,' ').replace(/\s{2,}/g,' ').replace(/\s+/g,' ').trim().replace(/\s*[-–]\s*$/,'').replace(/^[-–\s]+/,'').trim();
   const STOP=/grand\s*total|^\s*total\b|^\s*gross\b|net\s*payable|in[-\s]?words?|terms\s*(&|and)|amount\s*in\s*words|other\s*charges|mode\s*of\s*transport|prepared\s*by|thanking|remarks|contact\s*person|bin\s*(no|address)|definitions|force\s*majeure|intellectual\s*property|confidential/i;
-  const isHeader=d=>/^(item|description|brand|material\s*(no|code|description)|sl\b|uom|qty|rate|amount|unit\s*price|origin|specification|indent|cs\s*no|particular|line\b|product|order\s*qty|delivery|group\s*net|currency)/i.test((d||'').trim());
+  const isHeader=d=>/^(item|description|brand|material\s*(no|code|description)|sl\b|s\.no|uom|qty|rate|amount|unit\s*price|origin|specification|indent|cs\s*no|particular|line\b|product|order\s*qty|delivery|group\s*net|currency|dlv\s*date)/i.test((d||'').trim());
   const isJunk=d=>{d=clean(d);return !d||d.length<3||!/[A-Za-z]{2,}/.test(d)||isHeader(d)||STOP.test(d);};
   const stripReq=s=>s.replace(/\b(?:RE|CS|PR|SPR)--?\s*\d+/gi,' ').replace(/\b[A-Z]{2,6}\/\d{4}\/\w+/g,' ');
   function numbersIn(s){const out=[];let m;const re=/(\d[\d,]*\.\d{1,4}|\d[\d,]{3,}|\d+\.?\d*)/g;while((m=re.exec(s))){const v=parseFloat(m[0].replace(/,/g,''));if(!isNaN(v))out.push({raw:m[0],val:v,idx:m.index,dec:/\.\d{2}/.test(m[0])});}return out;}
   function pushItem(sl,material,qty,unit,rate,amount){material=clean(material);if(isJunk(material))return;const amt=parseFloat(String(amount).replace(/,/g,''))||0;if(amt<=0)return;const key=material.toLowerCase().slice(0,28)+'|'+amt;if(seen.has(key))return;seen.add(key);items.push({sl:String(sl||items.length+1).replace(/^0+/,'')||String(items.length+1),material,qty:qty?String(qty):'',unit:unit||'',rate:rate?String(rate):'',amount:String(amt)});}
 
+  // ── Strategy BAT ──
   const batRe=/^\s*(\d{4,5})\s+(\d{6,9})\s+(.+?)\s+(\d{1,4})\s+([A-Z]{2,3})\s+.*?([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+[A-Z]{3}\s*$/;
   let batHits=0;
   for(const ln of lines){ const m=ln.match(batRe); if(m){ pushItem(m[1],m[3],m[4],m[5],m[6],m[7]); batHits++; } }
   if(batHits>=2) return items;
 
+  // ── Strategy AFML (Akij ERP): "N <8+digit code> ... <Unit> QTY RATE AMOUNT ... AMOUNT2 ..." with desc on adjacent lines ──
+  // Row: 1 10300911997  0  Piece 6.00 4000 24,000.00 0 0 0.00 0 24,000.00 12 0
+  const afmlRe=new RegExp('^\\s*(\\d{1,3})\\s+(\\d{8,})\\s+.*?\\b('+UNITS.join('|')+')\\b\\s+(\\d{1,5}(?:\\.\\d{1,2})?)\\s+([\\d,]+(?:\\.\\d{1,2})?)\\s+([\\d,]+\\.\\d{2})','i');
+  let afmlHits=0;
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(afmlRe);
+    if(!m) continue;
+    // description: nearest non-numeric text lines above & below (indented wrap)
+    let desc='';
+    for(let j=i-1;j>=Math.max(0,i-3);j--){
+      const lx=lines[j].trim();
+      if(lx&&/[A-Za-z]{3,}/.test(lx)&&!isHeader(lx)&&!afmlRe.test(lines[j])&&numbersIn(lx).length<3) desc=lx+' '+desc; else break;
+    }
+    for(let j=i+1;j<Math.min(lines.length,i+3);j++){
+      const lx=lines[j].trim();
+      if(lx&&/[A-Za-z]{3,}/.test(lx)&&!isHeader(lx)&&!afmlRe.test(lines[j])&&numbersIn(lx).length<3) desc+=' '+lx; else break;
+    }
+    if(desc.trim()){ pushItem(m[1],desc,m[4],m[3],m[5],m[6]); afmlHits++; }
+  }
+  if(afmlHits>=1) return items;
+
+  // ── Strategy SAP/Dabur: row "NN  QTY.00  PC  RATE.00" then desc below; amount = qty*rate or from Basic-price line ──
+  const sapRe=new RegExp('^\\s*(\\d{1,3}0?)\\s+(\\d{1,5}\\.\\d{2})\\s+([A-Z]{2,3})\\s+([\\d,]+\\.\\d{2})\\s*$','i');
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(sapRe);
+    if(!m) continue;
+    let desc='';
+    for(let j=i+1;j<Math.min(lines.length,i+4);j++){
+      const lx=lines[j].trim();
+      if(lx&&/[A-Za-z]{3,}/.test(lx)&&!isHeader(lx)&&numbersIn(lx).length<2){ desc+=(desc?' ':'')+lx; }
+      else if(desc) break;
+    }
+    const qty=parseFloat(m[2]), rate=parseFloat(m[4].replace(/,/g,''));
+    if(desc.trim()&&qty>0&&rate>0) pushItem(m[1],desc,qty,m[3],rate,qty*rate);
+  }
+  if(items.length) return items;
+
+  // ── Generic strategies ──
   function assign(nums){if(!nums.length)return null;const amount=nums[nums.length-1].val;let rate,qty;if(nums.length>=3){rate=nums[nums.length-2].val;qty=nums[nums.length-3].val;}else if(nums.length===2){qty=nums[0].val;}return{qty,rate,amount};}
   for(let i=0;i<lines.length;i++){
     let ln=lines[i];
@@ -2233,6 +2273,18 @@ function extractMaterials(text){
       j++;guard++;
     }
     if(numsLine){const a=assign(numbersIn(numsLine));const u=numsLine.match(unitRe);if(a&&a.amount>0)pushItem(sl,desc,a.qty,u?u[1]:'',a.rate,a.amount);}
+  }
+  if(items.length) return items;
+
+  // ── SYNTHESIS FALLBACK: OCR destroyed the table → build one row from header fields ──
+  if(fallback && (fallback.itemDescription||fallback.amount)){
+    let desc=fallback.itemDescription||'';
+    if(!desc){
+      // try to find a plausible product line near the top (e.g. "Elevator Bucket Chain")
+      const cand=t.split('\n').map(l=>l.trim()).find(l=>l.length>6&&l.length<60&&/^[A-Z][A-Za-z ()\-\/]{5,}$/.test(l)&&!/PURCHASE|ORDER|WORKSHOP|LIMITED|LTD|CEMENT|FACTORY|OFFICE|ADDRESS|PHONE|TEL|DATE|TERMS/i.test(l));
+      desc=cand||'PO line item';
+    }
+    return [{sl:'1',material:clean(desc)||'PO line item',qty:'',unit:'',rate:'',amount:String(fallback.amount||'')}];
   }
   return items;
 }
