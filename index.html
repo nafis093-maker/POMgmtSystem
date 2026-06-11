@@ -1940,7 +1940,7 @@ async function processPDF(file){
       const b64 = btoa(bin);
       const resp = await fetch(endpoint, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ fileBase64:b64, mimeType:'application/pdf' })
+        body: JSON.stringify({ fileBase64:b64, mimeType:'application/pdf', debug:true })
       });
       const rawText = await resp.text();
       let data;
@@ -1948,6 +1948,11 @@ async function processPDF(file){
       catch(pe){ throw new Error('Backend returned non-JSON (HTTP '+resp.status+'): '+rawText.slice(0,140).replace(/</g,'')); }
       if(!resp.ok || !data.ok) throw new Error(data.error || ('HTTP '+resp.status));
       log('Document AI returned: PO='+data.poNumber+' Amt='+data.amount+' Materials='+(data.materials||[]).length,'ok');
+      if(data.debug){
+        log('— DEBUG: '+data.debug.entityCount+' entities —','info');
+        (data.debug.types||[]).slice(0,25).forEach(e=>log('  ['+e.type+'] "'+(e.text||e.norm||'')+'"'+(e.props&&e.props.length?(' {'+e.props.map(p=>p.type.split('/').pop()).join(',')+'}'):''),'info'));
+        if(data.debug.entityCount===0) log('  (no entities — processor may not be the Invoice Parser, or doc unreadable). Text snippet: '+(data.debug.docTextSnippet||'(empty)'),'warn');
+      }
       const fields = {
         poNumber:data.poNumber||'', poDate:data.poDate||'', dueDate:data.dueDate||'',
         amount:parseFloat(data.amount)||0, vendorName:data.vendorName||'',
