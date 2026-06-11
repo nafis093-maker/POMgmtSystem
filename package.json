@@ -1,15 +1,6 @@
 {
-  "name": "po-management-server",
+  "name": "po-management-system",
   "version": "1.0.0",
-  "description": "Manufacturing Planning System \u2014 Vercel functions (Document AI PO extraction)",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "imap-simple": "^5.1.0",
-    "mailparser": "^3.6.5"
-  }
+  "description": "Manufacturing Planning System — Vercel serverless functions",
+  "private": true
 }
