@@ -140,36 +140,44 @@ module.exports = async (req, res) => {
     const entities = (result.document && result.document.entities) || [];
     const out = { ok: true, poNumber: '', poDate: '', dueDate: '', vendorName: '', amount: 0, currency: 'BDT', materials: [], warnings: [] };
 
+    // DEBUG: expose what Document AI actually returned (entity types + values)
+    const debug = {
+      entityCount: entities.length,
+      types: entities.map(e => ({
+        type: e.type || '(none)',
+        text: (e.mentionText || '').slice(0, 50),
+        norm: e.normalizedValue ? (e.normalizedValue.text || JSON.stringify(e.normalizedValue).slice(0,60)) : null,
+        props: (e.properties || []).map(p => ({ type: p.type, text: (p.mentionText||'').slice(0,30) }))
+      })),
+      docTextSnippet: ((result.document && result.document.text) || '').slice(0, 200)
+    };
+
     for (const e of entities) {
-      switch (e.type || '') {
-        case 'invoice_id':
-        case 'purchase_order':   out.poNumber = out.poNumber || val(e); break;
-        case 'invoice_date':     out.poDate = out.poDate || val(e); break;
-        case 'due_date':         out.dueDate = out.dueDate || val(e); break;
-        case 'supplier_name':
-        case 'remit_to_name':    out.vendorName = out.vendorName || val(e); break;
-        case 'total_amount':
-        case 'net_amount':       { const a = num(val(e)); if (a > out.amount) out.amount = a; } break;
-        case 'currency':         out.currency = val(e) || out.currency; break;
-        case 'line_item': {
-          const m = { sl: String(out.materials.length + 1), material: '', qty: '', unit: '', rate: '', amount: '' };
-          for (const p of (e.properties || [])) {
-            const pv = val(p);
-            switch (p.type) {
-              case 'line_item/description': m.material = pv; break;
-              case 'line_item/quantity':    m.qty = pv; break;
-              case 'line_item/unit':        m.unit = pv; break;
-              case 'line_item/unit_price':  m.rate = pv; break;
-              case 'line_item/amount':      m.amount = pv; break;
-            }
-          }
-          if (m.material || m.amount) out.materials.push(m);
-          break;
+      const ty = (e.type || '').toLowerCase();
+      if (/(invoice_id|purchase_order|po_number|order_id|receipt_id)/.test(ty)) { out.poNumber = out.poNumber || val(e); }
+      else if (/(invoice_date|order_date|purchase_order_date|^date$|receipt_date)/.test(ty)) { out.poDate = out.poDate || val(e); }
+      else if (/due_date|delivery_date/.test(ty)) { out.dueDate = out.dueDate || val(e); }
+      else if (/(supplier_name|remit_to_name|vendor_name|customer_name|ship_to_name|bill_to_name|receiver_name)/.test(ty)) { out.vendorName = out.vendorName || val(e); }
+      else if (/(total_amount|net_amount|total_tax_amount|grand_total|amount_due|total)/.test(ty)) { const a = num(val(e)); if (a > out.amount) out.amount = a; }
+      else if (/currency/.test(ty)) { out.currency = val(e) || out.currency; }
+      else if (/line_item/.test(ty)) {
+        const m = { sl: String(out.materials.length + 1), material: '', qty: '', unit: '', rate: '', amount: '' };
+        for (const p of (e.properties || [])) {
+          const pt = (p.type || '').toLowerCase();
+          const pv = val(p);
+          if (/description|product/.test(pt)) m.material = pv;
+          else if (/quantity|qty/.test(pt)) m.qty = pv;
+          else if (/unit_of_measure|\bunit\b/.test(pt)) m.unit = pv;
+          else if (/unit_price|price/.test(pt)) m.rate = pv;
+          else if (/amount/.test(pt)) m.amount = pv;
         }
+        if (m.material || m.amount) out.materials.push(m);
       }
     }
     if (!out.poNumber) out.warnings.push('PO number not detected — please enter manually');
     if (!out.materials.length) out.warnings.push('No line items detected — add materials manually');
+    const wantDebug = (req.query && (req.query.debug==='1'||req.query.debug==='true')) || (body && body.debug);
+    if (wantDebug) out.debug = debug;
     return res.status(200).json(out);
   } catch (err) {
     console.error('extract-po error:', err);
