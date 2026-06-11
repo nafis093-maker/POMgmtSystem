@@ -20,7 +20,7 @@ function getClient() {
       client_email: process.env.GCP_CLIENT_EMAIL,
       private_key: privateKey,
     },
-    projectId: process.env.GCP_PROJECT_ID,
+    projectId: process.env.GCP_PROJECT_ID || '475352192712',
     // Document AI in eu/us needs the regional endpoint
     apiEndpoint: `${process.env.GCP_LOCATION || 'us'}-documentai.googleapis.com`,
   });
@@ -60,7 +60,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
 
   // Check env vars are set
-  const need = ['GCP_PROJECT_ID', 'GCP_LOCATION', 'GCP_PROCESSOR_ID', 'GCP_CLIENT_EMAIL', 'GCP_PRIVATE_KEY'];
+  const need = ['GCP_CLIENT_EMAIL', 'GCP_PRIVATE_KEY'];  // project/location/processor have defaults
   const missing = need.filter(k => !process.env[k]);
   if (missing.length) {
     return res.status(500).json({ ok: false, error: 'Server not configured. Missing: ' + missing.join(', ') });
@@ -74,7 +74,10 @@ module.exports = async (req, res) => {
     if (!fileBase64) return res.status(400).json({ ok: false, error: 'fileBase64 required' });
 
     const client = getClient();
-    const name = `projects/${process.env.GCP_PROJECT_ID}/locations/${process.env.GCP_LOCATION}/processors/${process.env.GCP_PROCESSOR_ID}`;
+    const project = process.env.GCP_PROJECT_ID || '475352192712';
+    const location = process.env.GCP_LOCATION || 'us';
+    const processor = process.env.GCP_PROCESSOR_ID || '3c0164cda01a3fac';
+    const name = `projects/${project}/locations/${location}/processors/${processor}`;
 
     const [result] = await client.processDocument({
       name,
