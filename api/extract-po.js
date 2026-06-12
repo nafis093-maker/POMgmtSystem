@@ -20,7 +20,7 @@
 
 const PROJECT   = () => process.env.GCP_PROJECT_ID   || '475352192712';
 const LOCATION  = () => process.env.GCP_LOCATION     || 'us';
-const PROCESSOR = () => process.env.GCP_PROCESSOR_ID || '3c0164cda01a3fac';
+const PROCESSOR = () => process.env.GCP_PROCESSOR_ID || 'e19000df7a9f652b';
 
 // ── OAuth: exchange refresh token for an access token ──
 async function getAccessTokenViaOAuth() {
