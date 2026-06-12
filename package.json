@@ -1,6 +1,9 @@
 {
   "name": "po-management-system",
   "version": "1.0.0",
-  "description": "Manufacturing Planning System — Vercel serverless functions",
-  "private": true
+  "description": "Manufacturing Planning System \u2014 Vercel serverless functions",
+  "private": true,
+  "dependencies": {
+    "nodemailer": "^6.9.14"
+  }
 }
