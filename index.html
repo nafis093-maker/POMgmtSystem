@@ -589,18 +589,21 @@ tbody tr:hover{transform:translateX(2px)}
 
 /* Import split: form + PDF preview. Preview is PC-only (>=900px). */
 .import-split{display:block}
-.import-form-col{width:100%}
+.import-form-col{width:100%;min-width:0}
 .import-preview-col{display:none}
 #pdf-preview{border:1px solid var(--border);border-radius:6px;background:var(--bg);height:600px;min-height:600px;overflow:hidden}
 #pdf-preview object,#pdf-preview iframe{width:100%;height:100%;border:0;display:block}
 #pdf-preview img{width:100%;height:auto;display:block}
-@media(min-width:900px){
-  .import-split{display:grid;grid-template-columns:minmax(360px,460px) minmax(0,1fr);gap:18px;align-items:start}
-  .import-preview-col{display:block;position:sticky;top:8px}
-  #pdf-preview{height:calc(100vh - 130px);min-height:680px}
+#ex-materials{overflow-x:auto;max-width:100%}
+#ex-materials table{min-width:520px}
+@media(min-width:1000px){
+  .import-split{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:18px;align-items:start}
+  .import-form-col{min-width:0;overflow:visible}
+  .import-preview-col{display:block;position:sticky;top:8px;align-self:start}
+  #pdf-preview{height:calc(100vh - 140px);min-height:620px}
 }
-@media(min-width:1400px){
-  .import-split{grid-template-columns:480px minmax(0,1fr)}
+@media(min-width:1500px){
+  .import-split{grid-template-columns:minmax(0,1fr) 560px}
 }
 </style>
 </head>
@@ -2952,7 +2955,8 @@ function qtBuildHTML(data, forExport){
   const cols=hasVat?['SL','Description Of Stores','Qty','Unit Price (Tk)','VAT '+data.vatPercent+'%','Total (Tk)']
                    :['SL','Description Of Stores','Qty','Unit Price (Tk)','Total Taka'];
   const lh=window._letterheadDataUrl || MEW_DEFAULT_LETTERHEAD;
-  const header=`<div style="margin-bottom:10px">
+  // Full-bleed header: negative margins cancel page padding (export) so the banner reaches edges
+  const header=`<div style="${forExport?'margin:-24px -32px 12px -32px':'margin-bottom:12px'}">
       <img src="${lh}" style="width:100%;max-width:100%;height:auto;display:block" alt="Micro Engineering Workshop">
     </div>`;
   const tdB='border:1px solid #000;padding:5px 7px;';
@@ -2963,7 +2967,7 @@ function qtBuildHTML(data, forExport){
     <td style="${tdB}text-align:right">${qtFmt(r.unitPrice)}</td>
     ${hasVat?`<td style="${tdB}text-align:right">${qtFmt(r.vat)}</td>`:''}
     <td style="${tdB}text-align:right">${qtFmt(r.total)}</td></tr>`).join('');
-  return `<div style="font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;${forExport?'padding:24px 32px;max-width:760px;margin:auto':''}">
+  return `<div style="font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;overflow:hidden;${forExport?'padding:24px 32px;max-width:760px;margin:auto':''}">
     ${header}
     <div style="text-align:center;font-size:17px;font-weight:bold;margin:14px 0;text-decoration:underline">Price Quotation</div>
     <div style="display:flex;justify-content:space-between;margin-bottom:6px">
@@ -3216,7 +3220,11 @@ function renderIntegrations(){
       <span class="int-badge ${integrations.smtp.connected?'connected-badge':'not-connected-badge'}">${integrations.smtp.connected?'✓ Connected':'Not Connected'}</span>
     </div>
     <div class="int-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Send email alerts for overdue POs, task completions, and daily summaries.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:8px">Send email alerts for overdue POs, task completions, and daily summaries — sent securely through your Vercel backend (<code>/api/send-email</code>).</p>
+      <div class="alert alert-info" style="margin-bottom:14px;font-size:12px">
+        <i class="ti ti-info-circle"></i>
+        <div>For Gmail: turn on <strong>2-Step Verification</strong>, then create an <strong>App Password</strong> (Google Account → Security → App passwords). Set <code>SMTP_USER</code> + <code>SMTP_PASS</code> in Vercel env vars and redeploy. The fields below are for reference; the actual credentials live server-side.</div>
+      </div>
       <div class="fc-row">
         <div class="fg"><label class="fl">SMTP Host</label><input class="fc" id="smtp-host" placeholder="smtp.gmail.com" value="${integrations.smtp.host}"></div>
         <div class="fg"><label class="fl">Port</label><input type="number" class="fc" id="smtp-port" value="${integrations.smtp.port}"></div>
@@ -3458,7 +3466,28 @@ function startGmailOAuth(){ connectGmail(); }
 function saveGmail(){ saveGmailSettings(); }
 function authorizeGmail(){ connectGmail(); }
 
-function testSMTP(){showNotif('SMTP Test','Test email sent (simulated). Check your inbox.','info');}
+async function testSMTP(){
+  const to = (document.getElementById('smtp-user')?.value || integrations.smtp.user || '').trim();
+  if(!to){ showNotif('SMTP Test','Enter your email address first.','warn'); return; }
+  showNotif('SMTP Test','Sending test email via backend…','info');
+  try{
+    const resp = await fetch('/api/send-email', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        to,
+        subject:'Test email — Micro Engineering Workshop PO Manager',
+        text:'This is a test email from your PO Management System. If you received this, email sending is working correctly.',
+        html:'<p>This is a <strong>test email</strong> from your PO Management System.</p><p>If you received this, email sending is working correctly. ✓</p>'
+      })
+    });
+    const raw = await resp.text();
+    let data; try{ data=JSON.parse(raw); }catch(e){ throw new Error('Backend returned non-JSON (HTTP '+resp.status+'): '+raw.slice(0,120)); }
+    if(!resp.ok || !data.ok) throw new Error(data.error || ('HTTP '+resp.status));
+    showNotif('Test email sent ✓','Sent to '+to+'. Check your inbox (and spam).','success');
+  }catch(e){
+    showNotif('Email failed', e.message, 'error');
+  }
+}
 function saveSMTP(){
   integrations.smtp.host=document.getElementById('smtp-host').value;
   integrations.smtp.port=parseInt(document.getElementById('smtp-port').value)||587;
