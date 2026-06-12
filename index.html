@@ -592,11 +592,15 @@ tbody tr:hover{transform:translateX(2px)}
 .import-form-col{width:100%}
 .import-preview-col{display:none}
 #pdf-preview{border:1px solid var(--border);border-radius:6px;background:var(--bg);height:600px;min-height:600px;overflow:hidden}
-#pdf-preview object,#pdf-preview iframe{width:100%;height:600px;border:0;display:block}
+#pdf-preview object,#pdf-preview iframe{width:100%;height:100%;border:0;display:block}
 #pdf-preview img{width:100%;height:auto;display:block}
 @media(min-width:900px){
-  .import-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  .import-split{display:grid;grid-template-columns:minmax(360px,460px) minmax(0,1fr);gap:18px;align-items:start}
   .import-preview-col{display:block;position:sticky;top:8px}
+  #pdf-preview{height:calc(100vh - 130px);min-height:680px}
+}
+@media(min-width:1400px){
+  .import-split{grid-template-columns:480px minmax(0,1fr)}
 }
 </style>
 </head>
@@ -1795,7 +1799,8 @@ function downloadCSV(csv,filename){
 function renderImport(){
   const gmOk = integrations.gmail.connected;
   const daiOn = localStorage.getItem('mew-dai-enabled')==='1';
-  return `<div style="max-width:640px">
+  return `<div>
+    <div style="max-width:640px">
     <div class="card" style="margin-bottom:16px">
       <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:7px">
         <i class="ti ti-cloud-cog" style="color:#4285F4"></i>Google Document AI (Invoice Parser)
@@ -1831,7 +1836,9 @@ function renderImport(){
       <h3>Drop a PO/Job PDF here or click to browse</h3>
       <p>${daiOn?'Sent to Google Document AI for parsing':'Runs entirely in your browser · No internet required'}</p>
     </div>
+    </div>
     <div id="pdf-status"></div>
+    <div style="max-width:640px">
     <div class="card" style="margin-top:18px">
       <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:7px">
         <i class="ti ti-brand-gmail" style="color:#EA4335"></i>Gmail Auto-Import
@@ -1843,6 +1850,7 @@ function renderImport(){
         : `<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Connect Gmail to auto-detect PO emails and import PDFs.</p>
            <button class="btn btn-sm btn-p" onclick="nav('integrations')"><i class="ti ti-plug"></i>Connect Gmail</button>`
       }
+    </div>
     </div>
   </div>`;
 }
@@ -4132,7 +4140,7 @@ function printJob(){const j=jobs.find(x=>x.id===curJob);if(!j)return;const w=win
    Colors: #F8FAFC bg, #334155 text, #F97316 orange CTA
    Per skill: WCAG AA, glass-card opacity ≥ bg-white/80
    ══════════════════════════════════════════════════════ */
-[data-theme="light"]{
+:root[data-theme="light"]{
   /* ── Stitch Industrial Logic — LIGHT (blueprint surfaces) ── */
   --bg:#F8F9FF;
   --bg2:#EFF4FF;
