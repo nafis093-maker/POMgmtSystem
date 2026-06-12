@@ -138,7 +138,8 @@ module.exports = async (req, res) => {
     }
 
     const entities = (result.document && result.document.entities) || [];
-    const out = { ok: true, poNumber: '', poDate: '', dueDate: '', vendorName: '', amount: 0, currency: 'BDT', materials: [], warnings: [] };
+    const pageCount = (result.document && result.document.pages && result.document.pages.length) || 0;
+    const out = { ok: true, poNumber: '', poDate: '', dueDate: '', vendorName: '', amount: 0, currency: 'BDT', materials: [], pageCount: pageCount, warnings: [] };
 
     // DEBUG: expose what Document AI actually returned (entity types + values)
     const debug = {
@@ -161,17 +162,19 @@ module.exports = async (req, res) => {
       else if (/(total_amount|net_amount|total_tax_amount|grand_total|amount_due|total)/.test(ty)) { const a = num(val(e)); if (a > out.amount) out.amount = a; }
       else if (/currency/.test(ty)) { out.currency = val(e) || out.currency; }
       else if (/line_item/.test(ty)) {
-        const m = { sl: String(out.materials.length + 1), material: '', qty: '', unit: '', rate: '', amount: '' };
+        const m = { sl: String(out.materials.length + 1), item: '', material: '', qty: '', unit: '', rate: '', amount: '' };
         for (const p of (e.properties || [])) {
           const pt = (p.type || '').toLowerCase();
           const pv = val(p);
-          if (/description|product/.test(pt)) m.material = pv;
+          if (/product_code|line_item\/code|\bcode\b|product_id|item_id|sku/.test(pt)) m.item = pv;
+          else if (/description|product_name|line_item\/product/.test(pt)) m.material = pv;
           else if (/quantity|qty/.test(pt)) m.qty = pv;
           else if (/unit_of_measure|\bunit\b/.test(pt)) m.unit = pv;
           else if (/unit_price|price/.test(pt)) m.rate = pv;
           else if (/amount/.test(pt)) m.amount = pv;
         }
-        if (m.material || m.amount) out.materials.push(m);
+        // if no explicit code, leave item blank (user fills); keep description in material
+        if (m.material || m.amount || m.item) out.materials.push(m);
       }
     }
     if (!out.poNumber) out.warnings.push('PO number not detected — please enter manually');
