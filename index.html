@@ -587,6 +587,7 @@ tbody tr:hover{transform:translateX(2px)}
   *,#main>*,.kb-card,.stat-val,.deadline-bell-btn{animation:none!important;transition:background-color .15s ease,color .15s ease!important}
 }
 
+@media(max-width:760px){.import-split{grid-template-columns:1fr!important}.import-split #pdf-preview{height:400px!important}}
 </style>
 </head>
 <body>
@@ -1799,6 +1800,11 @@ function renderImport(){
         <input class="fc" id="dai-endpoint" value="${(localStorage.getItem('mew-dai-endpoint')||'/api/extract-po').replace(/"/g,'&quot;')}" placeholder="/api/extract-po" onchange="localStorage.setItem('mew-dai-endpoint',this.value.trim())">
         <div style="font-size:10px;color:var(--muted);margin-top:3px">Default <code>/api/extract-po</code> works automatically on your Vercel deployment.</div>
       </div>
+      ${(()=>{ const u=getDocAIUsage(); return `<div style="margin-top:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:space-between;font-size:11px">
+        <span style="color:var(--muted)"><i class="ti ti-chart-bar" style="margin-right:4px"></i>Document AI usage — ${u.month}</span>
+        <span style="font-family:var(--mono);font-weight:600"><strong style="color:var(--accent)">${u.pages}</strong> page(s) · ${u.docs} doc(s)</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Free tier covers ~1,000 pages/month. <a href="#" onclick="resetDocAIUsage();return false" style="color:var(--accent)">Reset counter</a></div>`;})()}
     </div>
     <div class="alert ${daiOn?'alert-info':'alert-info'}" style="margin-bottom:16px">
       <i class="ti ti-${daiOn?'cloud':'cpu'}"></i>
@@ -1891,10 +1897,45 @@ async function extractTextFromPDF(arrayBuffer){
 }
 
 // ── MAIN PROCESS FUNCTION ──
+function getDocAIUsage(){
+  const month=new Date().toISOString().slice(0,7); // YYYY-MM
+  try{
+    const raw=localStorage.getItem('mew-docai-usage');
+    const u=raw?JSON.parse(raw):{};
+    if(u.month!==month) return {month,pages:0,docs:0};
+    return {month,pages:u.pages||0,docs:u.docs||0};
+  }catch(e){ return {month,pages:0,docs:0}; }
+}
+function resetDocAIUsage(){ try{ localStorage.removeItem('mew-docai-usage'); }catch(e){} showNotif('Usage reset','Document AI page counter cleared.','info'); render(); }
+function trackDocAIPages(pages){
+  const u=getDocAIUsage();
+  u.pages+=pages; u.docs+=1;
+  try{ localStorage.setItem('mew-docai-usage',JSON.stringify(u)); }catch(e){}
+}
+
+function renderImportPreview(file){
+  const box = document.getElementById('pdf-preview');
+  if(!box) return;
+  try{
+    const url = URL.createObjectURL(file);
+    const isImg = /image\//.test(file.type) || /\.(png|jpe?g|gif|webp)$/i.test(file.name);
+    if(isImg){
+      box.innerHTML = `<img src="${url}" style="max-width:100%;height:auto;display:block" onload="setTimeout(()=>URL.revokeObjectURL(this.src),3000)">`;
+    } else {
+      // PDF: embed via object/iframe
+      box.innerHTML = `<object data="${url}#toolbar=1&navpanes=0&view=FitH" type="application/pdf" style="width:100%;height:560px;border:0">
+        <iframe src="${url}" style="width:100%;height:560px;border:0"></iframe>
+        <div style="padding:20px;font-size:12px;color:var(--muted)">Preview unavailable in this browser. <a href="${url}" target="_blank" style="color:var(--accent)">Open PDF in new tab</a></div>
+      </object>`;
+    }
+  }catch(e){
+    box.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:30px">Preview not available</div>`;
+  }
+}
+
 async function processPDF(file){
   const S = document.getElementById('pdf-status');
   if(!S) return;
-
   const log = (msg, type='info') => {
     const colors = {info:'var(--muted)',ok:'var(--ok)',warn:'var(--warn)',err:'var(--err)'};
     const el = document.createElement('div');
@@ -1912,9 +1953,22 @@ async function processPDF(file){
           <div style="font-size:11px;color:var(--muted)">${(file.size/1024).toFixed(0)} KB</div>
         </div>
       </div>
-      <div id="pdf-log" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:180px;overflow-y:auto;margin-bottom:10px"></div>
-      <div id="pdf-form"></div>
+      <div class="import-split" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+        <div>
+          <div id="pdf-log" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;margin-bottom:10px"></div>
+          <div id="pdf-form"></div>
+        </div>
+        <div style="position:sticky;top:8px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.04em">Document Preview</div>
+          <div id="pdf-preview" style="border:1px solid var(--border);border-radius:6px;background:var(--bg);height:560px;overflow:auto;display:flex;align-items:flex-start;justify-content:center">
+            <div style="color:var(--muted);font-size:12px;padding:30px">Loading preview…</div>
+          </div>
+        </div>
+      </div>
     </div>`;
+
+  // Render the document preview (PDF embed or image)
+  renderImportPreview(file);
 
   await sleep(100);
 
@@ -1940,26 +1994,23 @@ async function processPDF(file){
       const b64 = btoa(bin);
       const resp = await fetch(endpoint, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ fileBase64:b64, mimeType:'application/pdf', debug:true })
+        body: JSON.stringify({ fileBase64:b64, mimeType:'application/pdf' })
       });
       const rawText = await resp.text();
       let data;
       try { data = JSON.parse(rawText); }
       catch(pe){ throw new Error('Backend returned non-JSON (HTTP '+resp.status+'): '+rawText.slice(0,140).replace(/</g,'')); }
       if(!resp.ok || !data.ok) throw new Error(data.error || ('HTTP '+resp.status));
-      log('Document AI returned: PO='+data.poNumber+' Amt='+data.amount+' Materials='+(data.materials||[]).length,'ok');
-      if(data.debug){
-        log('— DEBUG: '+data.debug.entityCount+' entities —','info');
-        (data.debug.types||[]).slice(0,25).forEach(e=>log('  ['+e.type+'] "'+(e.text||e.norm||'')+'"'+(e.props&&e.props.length?(' {'+e.props.map(p=>p.type.split('/').pop()).join(',')+'}'):''),'info'));
-        if(data.debug.entityCount===0) log('  (no entities — processor may not be the Invoice Parser, or doc unreadable). Text snippet: '+(data.debug.docTextSnippet||'(empty)'),'warn');
-      }
+      const pages = data.pageCount||0;
+      log('Document AI returned: PO='+data.poNumber+' · Amt='+data.amount+' · Materials='+(data.materials||[]).length+' · Pages used: '+pages,'ok');
+      if(pages){ trackDocAIPages(pages); const u=getDocAIUsage(); log('Document AI usage this month: '+u.pages+' page(s) across '+u.docs+' document(s)','info'); }
       const fields = {
         poNumber:data.poNumber||'', poDate:data.poDate||'', dueDate:data.dueDate||'',
         amount:parseFloat(data.amount)||0, vendorName:data.vendorName||'',
         itemDescription:(data.materials&&data.materials[0]&&data.materials[0].material)||'',
-        materials:(data.materials||[]).map((m,i)=>({sl:String(i+1),material:m.material||'',qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:String(parseFloat(String(m.amount).replace(/[^0-9.\-]/g,''))||'')})),
-        requisitions:[], notes:((data.materials||[]).length+' material(s) · Google Document AI'),
-        category:'Other', confidence:90, warnings:data.warnings||[]
+        materials:(data.materials||[]).map((m,i)=>({sl:String(i+1),item:m.item||'',material:m.material||'',qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:String(parseFloat(String(m.amount).replace(/[^0-9.\\-]/g,''))||'')})),
+        requisitions:[], notes:((data.materials||[]).length+' material(s) · '+pages+' page(s) · Google Document AI'),
+        category:'Other', confidence:90, warnings:data.warnings||[], pageCount:pages
       };
       showFinalForm(fields, file.name, '', 'Google Document AI');
       return;
@@ -2338,7 +2389,7 @@ function showFinalForm(f, filename, rawText, method){
       <button class="btn" onclick="document.getElementById('pdf-status').innerHTML='';document.getElementById('pdf-file-inp').value=''">Cancel</button>
       <button class="btn btn-p" onclick="confirmExtract()"><i class="ti ti-check"></i>Confirm &amp; Import</button>
     </div>`;
-  window._exMaterials = (f.materials && f.materials.length) ? f.materials.map(m=>({...m})) : [{sl:'1',material:'',qty:'',unit:'',rate:'',amount:''}];
+  window._exMaterials = (f.materials && f.materials.length) ? f.materials.map(m=>({item:'',unit:'',...m})) : [{sl:'1',item:'',material:'',qty:'',unit:'',rate:'',amount:''}];
   exRenderMaterials();
 }
 
@@ -2346,25 +2397,27 @@ function exMaterialsHTML(){
   const mats = window._exMaterials||[];
   return `<table style="width:100%;border-collapse:collapse;font-size:11px">
     <thead><tr>
-      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:34px">#</th>
-      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600">Material / Description</th>
-      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:56px">Qty</th>
-      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:70px">Rate</th>
-      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:80px">Amount</th>
-      <th style="width:32px"></th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:28px">#</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:90px">Item</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600">Item Description</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:46px">Qty</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:60px">Rate</th>
+      <th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:600;width:68px">Amount</th>
+      <th style="width:28px"></th>
     </tr></thead>
     <tbody>${mats.map((m,i)=>`<tr>
-      <td style="padding:2px 4px;color:var(--muted)">${i+1}</td>
-      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${(m.material||'').replace(/"/g,'&quot;')}" oninput="_exMaterials[${i}].material=this.value"></td>
-      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${m.qty||''}" oninput="_exMaterials[${i}].qty=this.value"></td>
-      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${m.rate||''}" oninput="_exMaterials[${i}].rate=this.value"></td>
-      <td style="padding:2px 4px"><input class="fc" style="padding:5px 7px;font-size:11px" value="${m.amount||''}" oninput="_exMaterials[${i}].amount=this.value"></td>
-      <td style="padding:2px 4px"><button class="btn btn-icon btn-sm btn-err" type="button" onclick="exRemoveMaterial(${i})" ${mats.length<=1?'disabled':''}><i class="ti ti-x"></i></button></td>
+      <td style="padding:2px 3px;color:var(--muted)">${i+1}</td>
+      <td style="padding:2px 3px"><input class="fc" style="padding:5px 6px;font-size:11px" value="${(m.item||'').replace(/"/g,'&quot;')}" placeholder="Code/Item" oninput="_exMaterials[${i}].item=this.value"></td>
+      <td style="padding:2px 3px"><input class="fc" style="padding:5px 6px;font-size:11px" value="${(m.material||'').replace(/"/g,'&quot;')}" placeholder="Description" oninput="_exMaterials[${i}].material=this.value"></td>
+      <td style="padding:2px 3px"><input class="fc" style="padding:5px 6px;font-size:11px" value="${m.qty||''}" oninput="_exMaterials[${i}].qty=this.value"></td>
+      <td style="padding:2px 3px"><input class="fc" style="padding:5px 6px;font-size:11px" value="${m.rate||''}" oninput="_exMaterials[${i}].rate=this.value"></td>
+      <td style="padding:2px 3px"><input class="fc" style="padding:5px 6px;font-size:11px" value="${m.amount||''}" oninput="_exMaterials[${i}].amount=this.value"></td>
+      <td style="padding:2px 3px"><button class="btn btn-icon btn-sm btn-err" type="button" onclick="exRemoveMaterial(${i})" ${mats.length<=1?'disabled':''}><i class="ti ti-x"></i></button></td>
     </tr>`).join('')}</tbody>
   </table>`;
 }
 function exRenderMaterials(){ const el=document.getElementById('ex-materials'); if(el) el.innerHTML=exMaterialsHTML(); }
-function exAddMaterial(){ window._exMaterials=window._exMaterials||[]; window._exMaterials.push({sl:String(window._exMaterials.length+1),material:'',qty:'',unit:'',rate:'',amount:''}); exRenderMaterials(); }
+function exAddMaterial(){ window._exMaterials=window._exMaterials||[]; window._exMaterials.push({sl:String(window._exMaterials.length+1),item:'',material:'',qty:'',unit:'',rate:'',amount:''}); exRenderMaterials(); }
 function exRemoveMaterial(i){ window._exMaterials.splice(i,1); exRenderMaterials(); }
 function fallbackBinaryExtract(arrayBuffer){
   try {
@@ -2732,8 +2785,8 @@ function confirmExtract(){
   const cat=document.getElementById('ex-cat').value;
   const today=new Date().toISOString().slice(0,10);
   const dd=document.getElementById('ex-due').value||new Date(Date.now()+45*86400000).toISOString().slice(0,10);
-  const materials=(window._exMaterials||[]).filter(m=>(m.material||'').trim()).map((m,i)=>({
-    sl:String(i+1), material:(m.material||'').trim(),
+  const materials=(window._exMaterials||[]).filter(m=>(m.material||'').trim()||(m.item||'').trim()).map((m,i)=>({
+    sl:String(i+1), item:(m.item||'').trim(), material:(m.material||'').trim(),
     qty:m.qty||'', unit:m.unit||'', rate:m.rate||'', amount:m.amount||''
   }));
   jobs.unshift({
@@ -3874,20 +3927,22 @@ function renderPanelMaterials(j,body,foot){
     <div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-family:var(--mono)">${mats.length} material(s) / requisition(s) on this PO</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr>
-        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:30px">#</th>
-        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase">Material / Description</th>
-        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:50px">Qty</th>
-        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:80px">Rate</th>
-        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:90px">Amount</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:26px">#</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:90px">Item</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase">Item Description</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:46px">Qty</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:74px">Rate</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;text-transform:uppercase;width:84px">Amount</th>
       </tr></thead>
       <tbody>${mats.map((m,i)=>`<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:7px 8px;color:var(--muted)">${m.sl||(i+1)}</td>
-        <td style="padding:7px 8px">${(m.material||'').replace(/</g,'&lt;')}${m.unit?` <span style="color:var(--muted);font-size:10px">(${m.unit})</span>`:''}</td>
+        <td style="padding:7px 8px;font-family:var(--mono);font-size:11px">${(m.item||'').replace(/</g,'&lt;')||'—'}</td>
+        <td style="padding:7px 8px">${(m.material||'').replace(/</g,'&lt;')||'—'}${m.unit?` <span style="color:var(--muted);font-size:10px">(${m.unit})</span>`:''}</td>
         <td style="padding:7px 8px;text-align:right">${m.qty||'—'}</td>
         <td style="padding:7px 8px;text-align:right">${m.rate?fmt(m.rate):'—'}</td>
         <td style="padding:7px 8px;text-align:right;font-weight:600">${m.amount?fmt(m.amount):'—'}</td>
       </tr>`).join('')}
-        <tr><td colspan="4" style="padding:8px;text-align:right;font-weight:700;border-top:2px solid var(--border)">Total</td>
+        <tr><td colspan="5" style="padding:8px;text-align:right;font-weight:700;border-top:2px solid var(--border)">Total</td>
         <td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);border-top:2px solid var(--border)">${fmt(total)}</td></tr>
       </tbody>
     </table>`;
@@ -3905,14 +3960,15 @@ function editMaterials(id){
       <div id="em-rows"></div>
       <button class="btn btn-sm" type="button" onclick="emAdd()" style="margin-top:8px"><i class="ti ti-plus"></i>Add Material</button>`;
     document.getElementById('em-rows').innerHTML=window._editMats.map((m,i)=>`<div class="frow" style="gap:6px;margin-bottom:6px">
-      <input class="fc" style="flex:3;padding:6px 8px;font-size:11px" placeholder="Material" value="${(m.material||'').replace(/"/g,'&quot;')}" oninput="_editMats[${i}].material=this.value">
+      <input class="fc" style="flex:1.2;padding:6px 8px;font-size:11px" placeholder="Item" value="${(m.item||'').replace(/"/g,'&quot;')}" oninput="_editMats[${i}].item=this.value">
+      <input class="fc" style="flex:3;padding:6px 8px;font-size:11px" placeholder="Description" value="${(m.material||'').replace(/"/g,'&quot;')}" oninput="_editMats[${i}].material=this.value">
       <input class="fc" style="flex:1;padding:6px 8px;font-size:11px" placeholder="Qty" value="${m.qty||''}" oninput="_editMats[${i}].qty=this.value">
       <input class="fc" style="flex:1.2;padding:6px 8px;font-size:11px" placeholder="Rate" value="${m.rate||''}" oninput="_editMats[${i}].rate=this.value">
       <input class="fc" style="flex:1.4;padding:6px 8px;font-size:11px" placeholder="Amount" value="${m.amount||''}" oninput="_editMats[${i}].amount=this.value">
       <button class="btn btn-icon btn-sm btn-err" type="button" onclick="emDel(${i})"><i class="ti ti-x"></i></button>
     </div>`).join('')||'<div style="color:var(--muted);font-size:12px;padding:10px">No materials. Click Add.</div>';
   };
-  window.emAdd=()=>{window._editMats.push({sl:String(window._editMats.length+1),material:'',qty:'',unit:'',rate:'',amount:''});draw();};
+  window.emAdd=()=>{window._editMats.push({sl:String(window._editMats.length+1),item:'',material:'',qty:'',unit:'',rate:'',amount:''});draw();};
   window.emDel=i=>{window._editMats.splice(i,1);draw();};
   draw();
   document.getElementById('panel-foot').innerHTML=`
@@ -3921,13 +3977,13 @@ function editMaterials(id){
 }
 function saveMaterials(id){
   const j=jobs.find(x=>x.id===id); if(!j) return;
-  j.materials=(window._editMats||[]).filter(m=>(m.material||'').trim()).map((m,i)=>({sl:String(i+1),material:m.material.trim(),qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:m.amount||''}));
+  j.materials=(window._editMats||[]).filter(m=>(m.material||'').trim()||(m.item||'').trim()).map((m,i)=>({sl:String(i+1),item:(m.item||'').trim(),material:(m.material||'').trim(),qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:m.amount||''}));
   showNotif('Materials saved',j.materials.length+' material(s) updated for '+id,'success');
   renderPanelContent();
 }
 function exportMaterialsCSV(id){
   const j=jobs.find(x=>x.id===id); if(!j||!j.materials) return;
-  const rows=[['SL','Material','Qty','Unit','Rate','Amount'],...j.materials.map((m,i)=>[m.sl||i+1,m.material,m.qty,m.unit,m.rate,m.amount])];
+  const rows=[['SL','Item','Item Description','Qty','Unit','Rate','Amount'],...j.materials.map((m,i)=>[m.sl||i+1,m.item||'',m.material,m.qty,m.unit,m.rate,m.amount])];
   const csv=rows.map(r=>r.map(c=>`"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download=id+'_materials.csv'; a.click(); URL.revokeObjectURL(url);
