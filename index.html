@@ -10,6 +10,8 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
   if(typeof pdfjsLib!=='undefined'){
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
@@ -1674,7 +1676,84 @@ function renderReports(){
     <div class="card">
       <div style="font-size:13px;font-weight:700;margin-bottom:4px">${measures.find(m=>m.v===reportCfg.measure).l} by ${dims.find(d=>d.v===reportCfg.dim).l}</div>
       <div id="report-viz" style="margin-top:14px">${renderReportViz()}</div>
+    </div>
+
+    <div class="tbl-wrap" style="margin-top:16px">
+      <div class="tbl-hdr">
+        <div class="tbl-title">All Materials (${allMaterialsRows().length})</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <div class="search-box"><i class="ti ti-search"></i><input type="text" placeholder="Search materials..." oninput="matReportSearch=this.value;render()" value="${matReportSearch||''}"></div>
+          <button class="btn btn-sm" onclick="exportMaterialsReport()"><i class="ti ti-file-spreadsheet"></i>Export CSV</button>
+        </div>
+      </div>
+      <div class="scroll-x">${renderMaterialsReportTable()}</div>
     </div>`;
+}
+
+let matReportSearch='';
+
+// Flatten every material line item across all jobs into report rows
+function allMaterialsRows(){
+  const rows=[];
+  jobs.forEach(j=>{
+    (j.materials||[]).forEach(m=>{
+      const amt=parseFloat(String(m.amount).replace(/[^0-9.\-]/g,''))||0;
+      rows.push({
+        jobId:j.id, customer:j.customer||'', po:j.po||'',
+        item:m.item||'', material:m.material||'', qty:m.qty||'', unit:m.unit||'',
+        rate:m.rate||'', amount:amt, status:j.status||''
+      });
+    });
+  });
+  if(matReportSearch){
+    const q=matReportSearch.toLowerCase();
+    return rows.filter(r=>[r.jobId,r.customer,r.po,r.item,r.material].join(' ').toLowerCase().includes(q));
+  }
+  return rows;
+}
+
+function renderMaterialsReportTable(){
+  const rows=allMaterialsRows();
+  if(!rows.length) return '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">No materials found. Materials appear here once jobs have material line items.</div>';
+  const total=rows.reduce((s,r)=>s+r.amount,0);
+  return `<table>
+    <thead><tr>
+      <th>Job ID</th><th>Customer</th><th>PO</th><th>Item</th><th>Material / Description</th>
+      <th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (Tk)</th><th>Job Status</th>
+    </tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td><span class="job-id">${r.jobId}</span></td>
+      <td>${(r.customer||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px">${(r.po||'—').replace(/</g,'&lt;')}</td>
+      <td>${(r.item||'—').replace(/</g,'&lt;')}</td>
+      <td><strong>${(r.material||'—').replace(/</g,'&lt;')}</strong></td>
+      <td>${r.qty||'—'}</td>
+      <td style="font-size:11px">${r.unit||'—'}</td>
+      <td style="font-size:11px">${r.rate||'—'}</td>
+      <td style="font-weight:600;text-align:right">${fmtNum(r.amount)}</td>
+      <td><span class="pill p-inprod" style="font-size:10px">${r.status||'—'}</span></td>
+    </tr>`).join('')}
+    <tr><td colspan="8" style="text-align:right;font-weight:700;border-top:2px solid var(--border)">TOTAL</td>
+      <td style="text-align:right;font-weight:700;border-top:2px solid var(--border)">৳${fmtNum(total)}</td>
+      <td style="border-top:2px solid var(--border)"></td></tr>
+    </tbody></table>`;
+}
+
+function exportMaterialsReport(){
+  const rows=allMaterialsRows();
+  if(!rows.length){ showNotif('Nothing to export','No materials available.','warn'); return; }
+  const esc=v=>{ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const header=['Job ID','Customer','PO','Item','Material/Description','Qty','Unit','Rate','Amount','Job Status'];
+  const lines=[header.join(',')];
+  rows.forEach(r=>lines.push([r.jobId,r.customer,r.po,r.item,r.material,r.qty,r.unit,r.rate,r.amount,r.status].map(esc).join(',')));
+  const total=rows.reduce((s,r)=>s+r.amount,0);
+  lines.push(['','','','','','','','','TOTAL: '+total,''].map(esc).join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='Materials_Report_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+  showNotif('Exported',rows.length+' material rows exported to CSV.','success');
 }
 
 function jobMaterialValue(j){
@@ -1805,7 +1884,7 @@ function renderProcurement(){
         <td>${p.leadTime}d</td>
         <td style="font-size:11px;color:var(--muted)">${p.altSupplier||'—'}</td>
         <td style="font-size:10px;font-weight:600;color:${p.alert.includes('DELAYED')?'var(--err)':p.alert?'var(--warn)':'var(--ok)'}">${p.alert||'✅ OK'}</td>
-        <td><button class="btn btn-sm" onclick="openEditProc('${p.jobId}')"><i class="ti ti-edit"></i></button></td>
+        <td style="display:flex;gap:5px"><button class="btn btn-sm" onclick="openEditProc('${p.jobId}')"><i class="ti ti-edit"></i></button><button class="btn btn-sm btn-err" onclick="removeProc(${p.dbId||'null'},'${p.jobId}','${(p.material||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button></td>
       </tr>`).join('')}
       </tbody>
     </table></div>
@@ -1813,9 +1892,19 @@ function renderProcurement(){
   </div>`;
 }
 
-// ═══════════════════════════════════════════════════
-//  SETTINGS
-// ═══════════════════════════════════════════════════
+function removeProc(dbId, jobId, material){
+  if(!confirm('Remove this procurement entry?\n\n'+(material||'')+' ('+jobId+')')) return;
+  // Remove from local array (match by dbId if present, else by jobId+material)
+  if(dbId!=null){
+    procurement=procurement.filter(p=>p.dbId!==dbId);
+    DB.deleteProcurement(dbId);
+  } else {
+    const idx=procurement.findIndex(p=>p.jobId===jobId && p.material===material);
+    if(idx>-1) procurement.splice(idx,1);
+  }
+  render();
+  showNotif('Removed','Procurement entry deleted.','warn');
+}
 // ═══════════════════════════════════════════════════
 //  JOB DETAIL MODAL
 // ═══════════════════════════════════════════════════
@@ -3397,19 +3486,109 @@ function exportQuotation(type){
   if(!data.toCompany){ showNotif('Missing Info','Enter the company name first.','warn'); return; }
   saveCurrentQuotation(data); // persist to DB whenever exported
   if(type==='pdf'){
-    const el=document.createElement('div');
-    el.innerHTML=qtBuildHTML(data,true);
-    el.style.width='210mm';
-    if(typeof html2pdf==='undefined'){ showNotif('Library loading','PDF library still loading, try again.','warn'); return; }
-    html2pdf().set({margin:0,filename:'Quotation_'+(data.toCompany||'MEW').replace(/[^A-Za-z0-9]/g,'_')+'.pdf',
-      image:{type:'jpeg',quality:0.98},
-      html2canvas:{scale:2,useCORS:true,windowWidth:794},
-      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
-      pagebreak:{mode:['css','legacy'],avoid:['tr','img','thead']}})
-      .from(el).save();
-    showNotif('Exporting PDF','Your quotation PDF is downloading.','success');
+    exportQuotationPDF(data);
   } else {
     exportQuotationWord(data);
+  }
+}
+
+// Build only the quotation BODY (no letterhead images) for manual pagination
+function qtBuildBodyOnly(data){
+  const full=qtBuildHTML(data,true);
+  // The body is the middle <div style="flex:1 0 auto;...">...</div>; rebuild a clean standalone version
+  const {rows,grand}=qtCompute();
+  const hasVat=data.vatPercent>0;
+  const cols=hasVat?['SL','Description Of Stores','Qty','Unit Price (Tk)','VAT '+data.vatPercent+'%','Total (Tk)']
+                   :['SL','Description Of Stores','Qty','Unit Price (Tk)','Total Taka'];
+  const tdB='border:1px solid #000;padding:5px 7px;';
+  const rowsHtml=rows.map(r=>`<tr>
+    <td style="${tdB}text-align:center">${r.sl}</td>
+    <td style="${tdB}">${(r.desc||'').replace(/</g,'&lt;')}</td>
+    <td style="${tdB}text-align:center">${r.qty}</td>
+    <td style="${tdB}text-align:right">${qtFmt(r.unitPrice)}</td>
+    ${hasVat?`<td style="${tdB}text-align:right">${qtFmt(r.vat)}</td>`:''}
+    <td style="${tdB}text-align:right">${qtFmt(r.total)}</td></tr>`).join('');
+  return `<div style="width:210mm;box-sizing:border-box;padding:6px 34px 10px 34px;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff">
+    <div style="text-align:center;font-size:17px;font-weight:bold;margin:6px 0 14px 0;text-decoration:underline">Price Quotation</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span>${data.ref?('Ref: '+data.ref):'&nbsp;'}</span><span>Date: ${data.date||''}</span></div>
+    <div style="margin-bottom:10px">
+      <div>To</div>
+      ${data.toDept?`<div>${data.toDept}</div>`:''}
+      <div style="font-weight:bold">${data.toCompany||''}</div>
+      <div style="white-space:pre-line">${data.toAddress||''}</div>
+      ${data.attention?`<div style="margin-top:4px">Attention: ${data.attention}</div>`:''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:10px">
+      <thead><tr>${cols.map(c=>`<th style="${tdB}background:#eee;text-align:center">${c}</th>`).join('')}</tr></thead>
+      <tbody>${rowsHtml}
+        <tr><td colspan="${hasVat?5:4}" style="${tdB}text-align:right;font-weight:bold">TOTAL TAKA =</td>
+        <td style="${tdB}text-align:right;font-weight:bold">${qtFmt(grand)}</td></tr></tbody>
+    </table>
+    <div style="margin-bottom:10px">In word: Taka ${qtNumberToWords(grand)} only.</div>
+    ${data.terms&&data.terms.length?`<div style="margin-bottom:10px">
+      <div style="font-weight:bold;text-decoration:underline">Terms &amp; Conditions:</div>
+      ${data.terms.map(t=>`<div>${t}</div>`).join('')}</div>`:''}
+    <div style="margin-top:22px">Thanking you</div>
+    <div style="margin-top:26px"><div style="font-weight:bold">${data.signatory||'Masud Rana'} (Manager)</div>
+      <div>For: Micro Engineering Workshop</div></div>
+  </div>`;
+}
+
+async function exportQuotationPDF(data){
+  if(typeof html2pdf==='undefined'){ showNotif('Library loading','PDF library still loading, try again.','warn'); return; }
+  showNotif('Exporting PDF','Generating your quotation…','info');
+  try{
+    const jsPDFCtor=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF||(html2pdf.jsPDF);
+    // html2canvas is bundled with html2pdf
+    const h2c=window.html2canvas;
+    const lh=window._letterheadDataUrl || MEW_DEFAULT_LETTERHEAD;
+    const ft=window._footerDataUrl || MEW_DEFAULT_FOOTER;
+
+    // Render body-only to a canvas
+    const holder=document.createElement('div');
+    holder.style.cssText='position:fixed;left:-99999px;top:0;width:210mm;background:#fff';
+    holder.innerHTML=qtBuildBodyOnly(data);
+    document.body.appendChild(holder);
+    const canvas=await h2c(holder.firstElementChild,{scale:2,useCORS:true,backgroundColor:'#fff'});
+    document.body.removeChild(holder);
+
+    const pdf=new jsPDFCtor({unit:'mm',format:'a4',orientation:'portrait'});
+    const pageW=210, pageH=297;
+    // Header/footer aspect ratios (images are 1653 wide): header 245h, footer 140h
+    const headerH=pageW*245/1653;   // ~31mm
+    const footerH=pageW*140/1653;   // ~18mm
+    const gapTop=2, gapBottom=2;
+    const contentTop=headerH+gapTop;
+    const contentBottom=pageH-footerH-gapBottom;
+    const contentAreaH=contentBottom-contentTop;   // usable mm per page for body
+
+    // Body canvas dimensions
+    const pxPerMM=canvas.width/pageW;               // body rendered at 210mm wide
+    const pageContentPx=Math.floor(contentAreaH*pxPerMM); // body px per page
+    const totalPages=Math.max(1,Math.ceil(canvas.height/pageContentPx));
+
+    for(let p=0;p<totalPages;p++){
+      if(p>0) pdf.addPage();
+      // Header (full width, flush to top)
+      pdf.addImage(lh,'JPEG',0,0,pageW,headerH,undefined,'FAST');
+      // Body slice
+      const sliceY=p*pageContentPx;
+      const sliceH=Math.min(pageContentPx,canvas.height-sliceY);
+      const slice=document.createElement('canvas');
+      slice.width=canvas.width; slice.height=sliceH;
+      const ctx=slice.getContext('2d');
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,slice.width,slice.height);
+      ctx.drawImage(canvas,0,sliceY,canvas.width,sliceH,0,0,canvas.width,sliceH);
+      const sliceHmm=sliceH/pxPerMM;
+      pdf.addImage(slice.toDataURL('image/jpeg',0.95),'JPEG',0,contentTop,pageW,sliceHmm,undefined,'FAST');
+      // Footer (full width, flush to bottom)
+      pdf.addImage(ft,'JPEG',0,pageH-footerH,pageW,footerH,undefined,'FAST');
+    }
+    pdf.save('Quotation_'+(data.toCompany||'MEW').replace(/[^A-Za-z0-9]/g,'_')+'.pdf');
+    showNotif('PDF ready','Your quotation downloaded with letterhead on every page.','success');
+  }catch(e){
+    showNotif('Export failed',e.message,'error');
   }
 }
 
