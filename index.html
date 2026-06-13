@@ -605,6 +605,88 @@ tbody tr:hover{transform:translateX(2px)}
 @media(min-width:1500px){
   .import-split{grid-template-columns:minmax(0,1fr) 560px}
 }
+
+/* ===== THEME: LIGHT + toggle (relocated from printJob) ===== */
+/* ══════════════════════════════════════════════════════
+   LIGHT THEME — UI/UX Pro Max Industrial Light
+   Colors: #F8FAFC bg, #334155 text, #F97316 orange CTA
+   Per skill: WCAG AA, glass-card opacity ≥ bg-white/80
+   ══════════════════════════════════════════════════════ */
+:root[data-theme="light"]{
+  /* ── Stitch Industrial Logic — LIGHT (blueprint surfaces) ── */
+  --bg:#F8F9FF;
+  --bg2:#EFF4FF;
+  --surface:#FFFFFF;
+  --surface2:#F4F7FF;
+  --surface3:#E5EEFF;
+  --border:#D3DCEC;
+  --border2:#B4C2D9;
+
+  --text:#0B1C30;
+  --text2:#3A4658;
+  --muted:#5C6B82;
+  --hint:#94A3B8;
+
+  --accent:#0284C7;
+  --accent-dim:#0369A1;
+  --accent-glow:rgba(2,132,199,0.1);
+  --accent-light:#EFF8FF;
+  --steel:#475569;
+  --steel-light:#64748B;
+
+  --ok:#059669;--ok-bg:#ECFDF5;--ok-bd:#6EE7B7;
+  --warn:#B45309;--warn-bg:#FFFBEB;--warn-bd:#FCD34D;
+  --err:#BA1A1A;--err-bg:#FFDAD6;--err-bd:#FCA5A5;
+  --info:#0284C7;--info-bg:#E0F2FE;--info-bd:#7DD3FC;
+  --pur:#6D28D9;--pur-bg:#F5F3FF;--pur-bd:#DDD6FE;
+
+  --sh:0 1px 2px rgba(11,28,48,.06);
+  --shl:0 10px 25px -5px rgba(11,28,48,.1),0 2px 8px rgba(11,28,48,.05);
+  color-scheme:light;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* Light risk labels */
+
+
+/* Smooth theme transition */
+*{transition:background-color .2s ease,border-color .2s ease,color .15s ease,box-shadow .2s ease}
+
+/* ══ THEME TOGGLE BUTTON ══ */
+.theme-toggle{width:44px;height:44px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted);transition:all .15s ease;flex-shrink:0;position:relative;overflow:hidden}
+.theme-toggle:hover{background:var(--surface3);color:var(--text);border-color:var(--border2)}
+.theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.theme-toggle .icon-dark,.theme-toggle .icon-light{position:absolute;transition:all .25s ease}
+.theme-toggle .icon-dark{opacity:1;transform:rotate(0deg) scale(1)}
+.theme-toggle .icon-light{opacity:0;transform:rotate(90deg) scale(.5)}
+
 </style>
 </head>
 <body>
@@ -1768,8 +1850,49 @@ function openNewJobModal(){
       <div class="fg"><label class="fl">QC Date</label><input type="date" class="fc" id="nj-qc"></div>
     </div>
     <div class="fg"><label class="fl">Initial Status</label><select class="fc" id="nj-status">${STATUS_LIST.map(s=>`<option>${s}</option>`).join('')}</select></div>
-    <div class="fg"><label class="fl">Remarks</label><textarea class="fc" id="nj-rem" style="min-height:60px" placeholder="Any notes or flags..."></textarea></div>`,
+    <div class="fg"><label class="fl">Remarks</label><textarea class="fc" id="nj-rem" style="min-height:60px" placeholder="Any notes or flags..."></textarea></div>
+    ${cfFormHTML()}`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="confirmNewJob()"><i class="ti ti-plus"></i>Create Job</button>`);
+}
+
+// Build HTML for active custom fields (used in New Job + Edit Job + Import forms)
+function cfFormHTML(values){
+  const active=(adminCfg.customFields||[]).filter(f=>f.active);
+  if(!active.length) return '';
+  values=values||{};
+  const fields=active.map(f=>{
+    const v=values[f.id]!=null?String(values[f.id]).replace(/"/g,'&quot;'):'';
+    const req=f.req?'<span class="req">*</span>':'';
+    let input;
+    if(f.type==='select'){
+      input=`<select class="fc" id="cf-${f.id}" data-cf="${f.id}"><option value="">Select...</option>${(f.opts||[]).map(o=>`<option ${o===values[f.id]?'selected':''}>${o}</option>`).join('')}</select>`;
+    } else if(f.type==='textarea'){
+      input=`<textarea class="fc" id="cf-${f.id}" data-cf="${f.id}" style="min-height:56px" placeholder="${f.placeholder||''}">${v}</textarea>`;
+    } else {
+      input=`<input type="${f.type==='number'?'number':f.type==='date'?'date':f.type==='email'?'email':f.type==='tel'?'tel':'text'}" class="fc" id="cf-${f.id}" data-cf="${f.id}" value="${v}" placeholder="${f.placeholder||''}">`;
+    }
+    return `<div class="fg"><label class="fl">${f.lbl} ${req}</label>${input}</div>`;
+  }).join('');
+  return `<div style="margin-top:6px;padding-top:12px;border-top:1px dashed var(--border)">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Custom Fields</div>
+    ${fields}</div>`;
+}
+
+// Read custom field values from a currently-open form into an object
+function cfCollect(){
+  const out={};
+  document.querySelectorAll('[data-cf]').forEach(el=>{ out[el.getAttribute('data-cf')]=el.value; });
+  return out;
+}
+
+// Validate required custom fields; returns error message or null
+function cfValidate(){
+  const active=(adminCfg.customFields||[]).filter(f=>f.active&&f.req);
+  for(const f of active){
+    const el=document.getElementById('cf-'+f.id);
+    if(el&&!el.value.trim()) return 'Please fill the required field: '+f.lbl;
+  }
+  return null;
 }
 
 function confirmNewJob(){
@@ -1779,6 +1902,7 @@ function confirmNewJob(){
   const prod=document.getElementById('nj-prod').value.trim();
   const qty=parseInt(document.getElementById('nj-qty').value)||0;
   if(!cust||!prod||!qty)return alert('Fill all required fields');
+  const cfErr=cfValidate(); if(cfErr) return alert(cfErr);
   const od=document.getElementById('nj-odate').value;
   const dd=document.getElementById('nj-ddate').value;
   const ps=document.getElementById('nj-pstart').value;
@@ -1793,7 +1917,8 @@ function confirmNewJob(){
     prodStart:ps||od,qcDate:qc||dd,dispatchDate:disp.toISOString().slice(0,10),
     status:document.getElementById('nj-status').value,completion:0,
     supervisor:document.getElementById('nj-sup').value,
-    remarks:document.getElementById('nj-rem').value
+    remarks:document.getElementById('nj-rem').value,
+    custom:cfCollect()
   });
   closeModal();updateBadges();render();
   showNotif('Job Created',id+' added to system.','success');
@@ -1824,7 +1949,8 @@ function openEditJob(id){
       <div class="fg"><label class="fl">QC Date</label><input type="date" class="fc" id="ej-qc" value="${j.qcDate||''}"></div>
     </div>
     <div class="fg"><label class="fl">Supervisor</label><select class="fc" id="ej-sup">${['Rahul Sharma','Priya Nair','Amir Khan','Sakib Ahmed'].map(s=>`<option ${j.supervisor===s?'selected':''}>${s}</option>`).join('')}</select></div>
-    <div class="fg"><label class="fl">Remarks</label><textarea class="fc" id="ej-rem" style="min-height:60px">${j.remarks||''}</textarea></div>`,
+    <div class="fg"><label class="fl">Remarks</label><textarea class="fc" id="ej-rem" style="min-height:60px">${j.remarks||''}</textarea></div>
+    ${cfFormHTML(j.custom||{})}`,
     `<button class="btn btn-err btn-sm" onclick="deleteJob('${j.id}')"><i class="ti ti-trash"></i>Delete</button><div style="flex:1"></div><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="confirmEditJob('${j.id}')">Save Changes</button>`);
 }
 
@@ -1843,6 +1969,8 @@ function confirmEditJob(id){
   j.qcDate=document.getElementById('ej-qc').value;
   j.supervisor=document.getElementById('ej-sup').value;
   j.remarks=document.getElementById('ej-rem').value;
+  const cfErr=cfValidate(); if(cfErr) return alert(cfErr);
+  j.custom=Object.assign({},j.custom||{},cfCollect());
   closeModal();updateBadges();render();
   showNotif('Saved',id+' updated.','success');
 }
@@ -3122,11 +3250,11 @@ function qtBuildHTML(data, forExport){
                    :['SL','Description Of Stores','Qty','Unit Price (Tk)','Total Taka'];
   const lh=window._letterheadDataUrl || MEW_DEFAULT_LETTERHEAD;
   const ft=window._footerDataUrl || MEW_DEFAULT_FOOTER;
-  // Full-bleed header: image spans the entire top edge with zero gap on all sides
-  const header=`<div style="${forExport?'margin:-25px -33px 14px -33px':'margin:-1px -1px 14px -1px'}">
+  // Header and footer images are full-bleed (edge-to-edge); they live OUTSIDE the padded body
+  const header=`<div style="margin:0;padding:0;line-height:0">
       <img src="${lh}" style="width:100%;max-width:none;height:auto;display:block;margin:0;padding:0;border:0" alt="Micro Engineering Workshop">
     </div>`;
-  const footer=`<div style="${forExport?'margin:18px -33px -25px -33px':'margin:18px -1px -1px -1px'}">
+  const footer=`<div style="margin:0;padding:0;line-height:0">
       <img src="${ft}" style="width:100%;max-width:none;height:auto;display:block;margin:0;padding:0;border:0" alt="">
     </div>`;
   const tdB='border:1px solid #000;padding:5px 7px;';
@@ -3137,9 +3265,9 @@ function qtBuildHTML(data, forExport){
     <td style="${tdB}text-align:right">${qtFmt(r.unitPrice)}</td>
     ${hasVat?`<td style="${tdB}text-align:right">${qtFmt(r.vat)}</td>`:''}
     <td style="${tdB}text-align:right">${qtFmt(r.total)}</td></tr>`).join('');
-  return `<div style="font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;overflow:hidden;${forExport?'padding:24px 32px;max-width:760px;margin:auto':''}">
-    ${header}
-    <div style="text-align:center;font-size:17px;font-weight:bold;margin:14px 0;text-decoration:underline">Price Quotation</div>
+  // The body content (everything between header and footer)
+  const body=`<div style="flex:1 0 auto;padding:6px 34px 10px 34px">
+    <div style="text-align:center;font-size:17px;font-weight:bold;margin:6px 0 14px 0;text-decoration:underline">Price Quotation</div>
     <div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span>${data.ref?('Ref: '+data.ref):'&nbsp;'}</span><span>Date: ${data.date||''}</span></div>
     <div style="margin-bottom:10px">
@@ -3162,6 +3290,15 @@ function qtBuildHTML(data, forExport){
     <div style="margin-top:22px">Thanking you</div>
     <div style="margin-top:26px"><div style="font-weight:bold">${data.signatory||'Masud Rana'} (Manager)</div>
       <div>For: Micro Engineering Workshop</div></div>
+  </div>`;
+  // Export: fixed A4 page (210x297mm) as a flex column so footer pins to the very bottom.
+  // Preview: natural height with min-height so it looks page-like on screen.
+  const pageStyle=forExport
+    ? "width:210mm;min-height:297mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;margin:0;overflow:hidden"
+    : "width:100%;min-height:760px;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;overflow:hidden";
+  return `<div style="${pageStyle}">
+    ${header}
+    ${body}
     ${footer}
   </div>`;
 }
@@ -3177,9 +3314,13 @@ function exportQuotation(type){
   if(type==='pdf'){
     const el=document.createElement('div');
     el.innerHTML=qtBuildHTML(data,true);
+    el.style.width='210mm';
     if(typeof html2pdf==='undefined'){ showNotif('Library loading','PDF library still loading, try again.','warn'); return; }
     html2pdf().set({margin:0,filename:'Quotation_'+(data.toCompany||'MEW').replace(/[^A-Za-z0-9]/g,'_')+'.pdf',
-      image:{type:'jpeg',quality:0.98},html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}})
+      image:{type:'jpeg',quality:0.98},
+      html2canvas:{scale:2,useCORS:true,windowWidth:794},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['avoid-all']}})
       .from(el).save();
     showNotif('Exporting PDF','Your quotation PDF is downloading.','success');
   } else {
@@ -4217,6 +4358,9 @@ function renderPanelDetails(j,body,foot){
       <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden"><div style="height:100%;background:${j.completion>=1?'var(--ok)':j.completion>=0.7?'var(--accent)':'var(--warn)'};width:${j.completion*100}%;border-radius:5px;transition:width .5s"></div></div>
     </div>
     ${j.remarks?`<div style="padding:9px 12px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:var(--r);font-size:12px;margin-bottom:10px"><strong>⚠</strong> ${j.remarks}</div>`:''}
+    ${(()=>{const act=(adminCfg.customFields||[]).filter(f=>f.active&&j.custom&&j.custom[f.id]);return act.length?`<div class="divider" style="height:1px;background:var(--border);margin:10px 0"></div>
+    <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Custom Fields</div>
+    <div class="info-grid" style="margin-bottom:12px">${act.map(f=>`<div class="ii"><div class="lbl">${f.lbl}</div><div class="val">${String(j.custom[f.id]).replace(/</g,'&lt;')}</div></div>`).join('')}</div>`:'';})()}
     ${p?`<div class="divider" style="height:1px;background:var(--border);margin:10px 0"></div>
     <div style="font-size:12px;font-weight:700;margin-bottom:8px">Material: ${p.material}</div>
     <div class="info-grid">
@@ -4426,85 +4570,6 @@ async function sendAIJob(pid){
 function closePanel(){document.getElementById('panel').classList.remove('open');document.getElementById('overlay').classList.remove('open');curJob=null;}
 function editCurrentJob(){const j=jobs.find(x=>x.id===curJob);if(j)openEditJob(j.id);}
 function printJob(){const j=jobs.find(x=>x.id===curJob);if(!j)return;const w=window.open('','_blank');w.document.write(`<html><head><title>${j.id}</title><style>body{font-family:sans-serif;padding:40px;max-width:700px;margin:auto}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f5f5f5;font-weight:600;text-align:left}
-/* ══════════════════════════════════════════════════════
-   LIGHT THEME — UI/UX Pro Max Industrial Light
-   Colors: #F8FAFC bg, #334155 text, #F97316 orange CTA
-   Per skill: WCAG AA, glass-card opacity ≥ bg-white/80
-   ══════════════════════════════════════════════════════ */
-:root[data-theme="light"]{
-  /* ── Stitch Industrial Logic — LIGHT (blueprint surfaces) ── */
-  --bg:#F8F9FF;
-  --bg2:#EFF4FF;
-  --surface:#FFFFFF;
-  --surface2:#F4F7FF;
-  --surface3:#E5EEFF;
-  --border:#D3DCEC;
-  --border2:#B4C2D9;
-
-  --text:#0B1C30;
-  --text2:#3A4658;
-  --muted:#5C6B82;
-  --hint:#94A3B8;
-
-  --accent:#0284C7;
-  --accent-dim:#0369A1;
-  --accent-glow:rgba(2,132,199,0.1);
-  --accent-light:#EFF8FF;
-  --steel:#475569;
-  --steel-light:#64748B;
-
-  --ok:#059669;--ok-bg:#ECFDF5;--ok-bd:#6EE7B7;
-  --warn:#B45309;--warn-bg:#FFFBEB;--warn-bd:#FCD34D;
-  --err:#BA1A1A;--err-bg:#FFDAD6;--err-bd:#FCA5A5;
-  --info:#0284C7;--info-bg:#E0F2FE;--info-bd:#7DD3FC;
-  --pur:#6D28D9;--pur-bg:#F5F3FF;--pur-bd:#DDD6FE;
-
-  --sh:0 1px 2px rgba(11,28,48,.06);
-  --shl:0 10px 25px -5px rgba(11,28,48,.1),0 2px 8px rgba(11,28,48,.05);
-  color-scheme:light;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/* Light risk labels */
-
-
-/* Smooth theme transition */
-*{transition:background-color .2s ease,border-color .2s ease,color .15s ease,box-shadow .2s ease}
-
-/* ══ THEME TOGGLE BUTTON ══ */
-.theme-toggle{width:44px;height:44px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted);transition:all .15s ease;flex-shrink:0;position:relative;overflow:hidden}
-.theme-toggle:hover{background:var(--surface3);color:var(--text);border-color:var(--border2)}
-.theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.theme-toggle .icon-dark,.theme-toggle .icon-light{position:absolute;transition:all .25s ease}
-.theme-toggle .icon-dark{opacity:1;transform:rotate(0deg) scale(1)}
-.theme-toggle .icon-light{opacity:0;transform:rotate(90deg) scale(.5)}
 
 </style></head><body><h1>${j.id} — ${j.product}</h1><p style="color:#888">Printed: ${new Date().toLocaleString()}</p><table><tr><th colspan="2">Job Details</th></tr><tr><td>Customer</td><td>${j.customer}</td></tr><tr><td>Product</td><td>${j.product}</td></tr><tr><td>Quantity</td><td>${j.qty}</td></tr><tr><td>Priority</td><td>${j.priority}</td></tr><tr><td>Factory</td><td>${j.factory}</td></tr><tr><td>Status</td><td>${j.status}</td></tr><tr><td>Delivery Date</td><td>${F.date(j.deliveryDate)}</td></tr><tr><td>Supervisor</td><td>${j.supervisor}</td></tr>${j.remarks?`<tr><td>Remarks</td><td>${j.remarks}</td></tr>`:''}</table></body></html>`);w.print();}
 
