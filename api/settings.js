@@ -1,10 +1,19 @@
-// api/settings.js — shared key/value settings (email alert recipients, custom fields, letterhead, etc.)
-// GET /api/settings            -> { ok, settings: { key: value, ... } }
-// GET /api/settings?key=foo    -> { ok, value }
-// POST /api/settings { key, value }  -> upsert one setting
-import { sql } from '@vercel/postgres';
+// api/settings.js — shared key/value settings.
+function ensurePgEnv() {
+  if (!process.env.POSTGRES_URL) {
+    const u = process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING;
+    if (u) process.env.POSTGRES_URL = u;
+  }
+}
 
 export default async function handler(req, res) {
+  ensurePgEnv();
+  if (!process.env.POSTGRES_URL)
+    return res.status(500).json({ ok: false, error: 'Database not connected (no POSTGRES_URL/DATABASE_URL).' });
+  let sql;
+  try { ({ sql } = await import('@vercel/postgres')); }
+  catch (e) { return res.status(500).json({ ok: false, error: '@vercel/postgres not installed', detail: e.message }); }
+
   try {
     if (req.method === 'GET') {
       const key = req.query.key;
