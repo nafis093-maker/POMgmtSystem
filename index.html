@@ -687,6 +687,8 @@ tbody tr:hover{transform:translateX(2px)}
 .theme-toggle .icon-dark{opacity:1;transform:rotate(0deg) scale(1)}
 .theme-toggle .icon-light{opacity:0;transform:rotate(90deg) scale(.5)}
 
+
+@keyframes dbspin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -785,6 +787,12 @@ tbody tr:hover{transform:translateX(2px)}
       </div>
     </div>
     <div class="content" id="main"></div>
+    <div id="db-loader" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);backdrop-filter:blur(2px);align-items:center;justify-content:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:26px 34px;display:flex;flex-direction:column;align-items:center;gap:14px;box-shadow:var(--shl)">
+        <div style="width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:dbspin .7s linear infinite"></div>
+        <div id="db-loader-msg" style="font-size:13px;color:var(--text);font-weight:600">Loading your data…</div>
+      </div>
+    </div>
   </div>
 
   <!-- OVERLAY + PANEL -->
@@ -1087,10 +1095,15 @@ function doLogin(){
   updateBadges();render();
   // Load data from the database (replaces seed data if the DB has rows)
   (async()=>{
-    await applySharedSettings();
-    await DB.loadJobs();
-    await DB.loadProcurement();
-    updateBadges(); render();
+    showDbLoader('Loading your data…');
+    try{
+      await applySharedSettings();
+      await DB.loadJobs();
+      await DB.loadProcurement();
+    }finally{
+      hideDbLoader();
+      updateBadges(); render();
+    }
   })();
   setTimeout(()=>{
     const al=activeAlerts();
@@ -1180,6 +1193,9 @@ function updateBadges(){
   document.getElementById('nb-alerts').textContent=activeAlerts().length;
   document.getElementById('nb-proc').textContent=procurement.filter(p=>p.daysDelayed>0||p.status.includes('Transit')).length||'';
 }
+
+function showDbLoader(msg){ const el=document.getElementById('db-loader'); if(el){ const m=document.getElementById('db-loader-msg'); if(m&&msg)m.textContent=msg; el.style.display='flex'; } }
+function hideDbLoader(){ const el=document.getElementById('db-loader'); if(el) el.style.display='none'; }
 
 function showNotif(title,body,type='info'){
   const icons={info:'ti-info-circle',success:'ti-circle-check',warn:'ti-alert-triangle',error:'ti-circle-x'};
@@ -3230,16 +3246,19 @@ Offer Validity - 12 days</textarea></div>
 
 function saveCurrentQuotation(data){
   const {grand}=qtCompute();
-  const q={ref:data.ref,toCompany:data.toCompany,toDept:data.toDept,date:data.date,
+  const rawDate=(document.getElementById('qt-date')||{}).value||''; // ISO yyyy-mm-dd for DB
+  const q={ref:data.ref,toCompany:data.toCompany,toDept:data.toDept,date:rawDate,
     signatory:data.signatory,items:data.items,vatPercent:data.vatPercent,grandTotal:grand,terms:data.terms};
-  DB.saveQuotation(q).then(r=>{ if(r&&r.ok){ loadQuotationsList(); } });
+  return DB.saveQuotation(q).then(r=>{ if(r&&r.ok){ loadQuotationsList(); } return r; });
 }
 
 function saveQuotationManual(){
   const data=qtGatherData();
   if(!data.toCompany){ showNotif('Missing Info','Enter the company name first.','warn'); return; }
-  saveCurrentQuotation(data);
-  showNotif('Quotation saved','Stored in the database.','success');
+  saveCurrentQuotation(data).then(r=>{
+    if(r&&r.ok) showNotif('Quotation saved','Stored in the database.','success');
+    else showNotif('Save failed',(r&&r.error)||'Could not save to database.','error');
+  });
 }
 
 async function loadQuotationsList(){
@@ -3874,6 +3893,7 @@ function saveSMTP(){
   integrations.smtp.pass=document.getElementById('smtp-pass').value;
   integrations.smtp.from=document.getElementById('smtp-from').value;
   integrations.smtp.connected=!!(integrations.smtp.host&&integrations.smtp.user);
+  DB.saveSetting('integrations', integrations);
   log('SMTP Configured','Email notification settings saved.','success');
   render();
 }
@@ -3968,7 +3988,13 @@ function togglePerm(role,grp,perm,el){
     el.classList.toggle('on');
     const span=el.previousElementSibling;
     if(span){const allowed=ROLES[role].perms[grp][perm];span.textContent=allowed?'✓ Allowed':'✗ Denied';span.style.color=allowed?'var(--ok)':'var(--err)';}
+    saveAccessControl();
   }
+}
+
+// Persist users + role permissions to the shared settings table
+function saveAccessControl(){
+  DB.saveSetting('accessControl', {users:USERS, roles:ROLES});
 }
 
 function editAccessUser(id){
@@ -3997,6 +4023,7 @@ function confirmEditAccessUser(id){
   const np=document.getElementById('eu-p').value;
   if(np) u.pass=np;
   u.avatar=u.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  saveAccessControl();
   closeModal();render();
 }
 
@@ -4005,6 +4032,7 @@ function delAccessUser(id){
   if(!confirm('Delete this user?'))return;
   const idx=USERS.findIndex(x=>x.id===id);
   if(idx>-1) USERS.splice(idx,1);
+  saveAccessControl();
   closeModal();render();
 }
 
@@ -4024,6 +4052,7 @@ function confirmAddAccessUser(){
   const n=document.getElementById('nu-n').value.trim(),e=document.getElementById('nu-e').value.trim(),p=document.getElementById('nu-p').value;
   if(!n||!e||!p){alert('Fill all required fields.');return;}
   USERS.push({id:'u'+Date.now(),name:n,email:e,pass:p,role:document.getElementById('nu-r').value,dept:document.getElementById('nu-d').value||'—',active:true,avatar:n.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()});
+  saveAccessControl();
   closeModal();render();
   log('User Added',`${n} added to the system.`,'success');
 }
@@ -4348,6 +4377,7 @@ function saveSettings(){
   settings.currency=document.getElementById('s-cur').value;
   const sb=document.getElementById('company-name-sb');
   if(sb)sb.textContent=settings.company;
+  DB.saveSetting('appSettings', settings);
   showNotif('Settings Saved','Company profile updated.','success');
 }
 function saveMyAccount(){
@@ -4850,6 +4880,13 @@ async function applySharedSettings(){
     if(s.customFields){ adminCfg.customFields=s.customFields; }
     if(s.letterhead){ window._letterheadDataUrl=s.letterhead; }
     if(s.footer){ window._footerDataUrl=s.footer; }
+    if(s.integrations){ Object.assign(integrations, s.integrations); }
+    if(s.appSettings){ Object.assign(settings, s.appSettings);
+      const sb=document.getElementById('company-name-sb'); if(sb&&settings.company) sb.textContent=settings.company; }
+    if(s.accessControl){
+      if(Array.isArray(s.accessControl.users)){ USERS.length=0; s.accessControl.users.forEach(u=>USERS.push(u)); }
+      if(s.accessControl.roles){ Object.keys(s.accessControl.roles).forEach(k=>{ ROLES[k]=s.accessControl.roles[k]; }); }
+    }
   }catch(e){}
 }
 
