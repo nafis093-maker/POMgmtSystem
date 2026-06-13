@@ -1,9 +1,11 @@
 {
   "name": "po-management-system",
-  "version": "1.0.0",
-  "description": "Manufacturing Planning System \u2014 Vercel serverless functions",
+  "version": "1.1.0",
+  "description": "Manufacturing Planning System — Vercel serverless functions",
   "private": true,
   "dependencies": {
-    "nodemailer": "^6.9.14"
+    "nodemailer": "^6.9.14",
+    "@vercel/postgres": "^0.10.0",
+    "@vercel/blob": "^0.27.0"
   }
 }
