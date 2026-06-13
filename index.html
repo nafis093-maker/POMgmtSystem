@@ -1112,6 +1112,12 @@ function doLogin(){
   if(user.role!=='admin') document.getElementById('admin-nav-grp').style.display='none';
   if(!canDo('Create PO')) document.getElementById('new-job-btn').style.display='none';
   updateBadges();render();
+  // Load data from the database (replaces seed data if the DB has rows)
+  (async()=>{
+    await applySharedSettings();
+    const loaded=await DB.loadJobs();
+    if(loaded){ updateBadges(); render(); }
+  })();
   setTimeout(()=>{
     const al=activeAlerts();
     if(al.length) showNotif('Welcome, '+user.name,'⚠ '+al.length+' job(s) need attention.','warn');
@@ -1498,6 +1504,7 @@ function kbDrop(e,newStatus){
   window._kbDragging=null;
   updateBadges();
   render();
+  DB.updateJob(j);
   showNotif('Status Updated',jobId+': '+oldStatus+' → '+newStatus,'success');
 }
 
@@ -1910,7 +1917,7 @@ function confirmNewJob(){
   // auto-calc dispatch = dd-1 day, mat arrival = od+10 days
   const matArr=new Date(od);matArr.setDate(matArr.getDate()+10);
   const disp=new Date(dd||od);disp.setDate(disp.getDate()-1);
-  jobs.push({
+  const newJob={
     id,customer:cust,po:document.getElementById('nj-po').value,product:prod,qty,
     priority:document.getElementById('nj-pri').value,factory:document.getElementById('nj-fac').value,
     orderDate:od,deliveryDate:dd,procStart:od,matArrival:matArr.toISOString().slice(0,10),
@@ -1918,9 +1925,12 @@ function confirmNewJob(){
     status:document.getElementById('nj-status').value,completion:0,
     supervisor:document.getElementById('nj-sup').value,
     remarks:document.getElementById('nj-rem').value,
+    materials:[],docs:[],tl:[],
     custom:cfCollect()
-  });
+  };
+  jobs.push(newJob);
   closeModal();updateBadges();render();
+  DB.createJob(newJob);
   showNotif('Job Created',id+' added to system.','success');
 }
 
@@ -1972,6 +1982,7 @@ function confirmEditJob(id){
   const cfErr=cfValidate(); if(cfErr) return alert(cfErr);
   j.custom=Object.assign({},j.custom||{},cfCollect());
   closeModal();updateBadges();render();
+  DB.updateJob(j);
   showNotif('Saved',id+' updated.','success');
 }
 
@@ -1979,6 +1990,7 @@ function deleteJob(id){
   if(!confirm('Delete '+id+'? This cannot be undone.'))return;
   jobs=jobs.filter(j=>j.id!==id);
   closeModal();updateBadges();render();
+  DB.deleteJob(id);
   showNotif('Deleted',id+' removed.','warn');
 }
 
@@ -4030,6 +4042,7 @@ function saveEmailAlerts(){
   const r=document.getElementById('ea-recipients');
   if(r) adminCfg.emailAlerts.recipients=r.value.trim();
   try{ localStorage.setItem('mew-email-alerts', JSON.stringify(adminCfg.emailAlerts)); }catch(e){}
+  DB.saveSetting('emailAlerts', adminCfg.emailAlerts);
   const on=adminCfg.emailAlerts.alerts.filter(a=>a.on).length;
   showNotif('Email alerts saved', (adminCfg.emailAlerts.recipients?('Recipients: '+adminCfg.emailAlerts.recipients+' · '):'')+on+' alert type(s) enabled','success');
 }
@@ -4154,8 +4167,8 @@ function renderAdminNR(){
 }
 
 // ── Admin toggles ──
-function toggleCF(id,el){const f=adminCfg.customFields.find(x=>x.id===id);if(f){f.active=!f.active;el.classList.toggle('on');}}
-function delCF(id){if(!confirm('Delete field?'))return;adminCfg.customFields=adminCfg.customFields.filter(f=>f.id!==id);render();}
+function toggleCF(id,el){const f=adminCfg.customFields.find(x=>x.id===id);if(f){f.active=!f.active;el.classList.toggle('on');DB.saveSetting('customFields', adminCfg.customFields);}}
+function delCF(id){if(!confirm('Delete field?'))return;adminCfg.customFields=adminCfg.customFields.filter(f=>f.id!==id);DB.saveSetting('customFields', adminCfg.customFields);render();}
 function toggleTT(id,el){const t=adminCfg.taskTemplates.find(x=>x.id===id);if(t){t.active=!t.active;el.classList.toggle('on');}}
 function delTT(id){if(!confirm('Delete template?'))return;adminCfg.taskTemplates=adminCfg.taskTemplates.filter(t=>t.id!==id);render();}
 function togglePF(id,el){const f=adminCfg.poFields.find(x=>x.id===id);if(f&&!f.sys){f.active=!f.active;el.classList.toggle('on');}else showNotif('System Field','System fields cannot be hidden.','warn');}
@@ -4181,6 +4194,7 @@ function confirmAddCF(){
   const type=document.getElementById('cf-type').value;
   const opts=type==='select'?document.getElementById('cf-opts').value.split('\n').map(s=>s.trim()).filter(Boolean):undefined;
   adminCfg.customFields.push({id:'cf'+Date.now(),lbl,type,req:document.getElementById('cf-req').value==='true',placeholder:document.getElementById('cf-ph').value,opts,active:true});
+  DB.saveSetting('customFields', adminCfg.customFields);
   closeModal();render();showNotif('Field Added',`"${lbl}" added to PO form.`,'success');
 }
 
@@ -4204,6 +4218,7 @@ function confirmEditCF(id){
   f.req=document.getElementById('ecf-req').value==='true';
   f.placeholder=document.getElementById('ecf-ph').value;
   if(f.type==='select')f.opts=document.getElementById('ecf-opts').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  DB.saveSetting('customFields', adminCfg.customFields);
   closeModal();render();
 }
 
@@ -4446,6 +4461,7 @@ function editMaterials(id){
 function saveMaterials(id){
   const j=jobs.find(x=>x.id===id); if(!j) return;
   j.materials=(window._editMats||[]).filter(m=>(m.material||'').trim()||(m.item||'').trim()).map((m,i)=>({sl:String(i+1),item:(m.item||'').trim(),material:(m.material||'').trim(),qty:m.qty||'',unit:m.unit||'',rate:m.rate||'',amount:m.amount||''}));
+  DB.updateJob(j);
   showNotif('Materials saved',j.materials.length+' material(s) updated for '+id,'success');
   renderPanelContent();
 }
@@ -4488,32 +4504,43 @@ function confirmTLJob(id){
 }
 
 function renderPanelDocs(j,body,foot){
-  const rows=(j.docs||[]).map((d,i)=>`
-    <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--s2);margin-bottom:7px">
-      <i class="ti ti-file-type-pdf" style="font-size:20px;color:var(--err);flex-shrink:0"></i>
-      <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.name}</div><div style="font-size:11px;color:var(--muted)">${d.size||'—'} · ${d.date}</div></div>
-      <button class="btn btn-sm btn-err btn-icon" onclick="delJobDoc('${j.id}',${i})"><i class="ti ti-trash"></i></button>
-    </div>`).join('');
-  body.innerHTML=(rows||'<div style="color:var(--hint);font-size:12px;padding:8px">No documents attached.</div>')+
-    `<button class="btn btn-sm btn-p" style="margin-top:8px" onclick="addJobDocModal('${j.id}')"><i class="ti ti-upload"></i>Attach Document</button>`;
+  body.innerHTML='<div style="color:var(--hint);font-size:12px;padding:8px">Loading attachments\u2026</div>';
   foot.innerHTML='';
+  DB.listAttachments(j.id).then(atts=>{
+    if(curJob!==j.id) return;
+    const fmtSize=(b)=>{ b=Number(b)||0; return b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB'; };
+    const icon=(ct)=> (ct||'').includes('pdf')?'ti-file-type-pdf':(ct||'').includes('image')?'ti-photo':(ct||'').includes('sheet')||(ct||'').includes('excel')?'ti-file-type-xls':(ct||'').includes('word')?'ti-file-type-doc':'ti-file';
+    const rows=(atts||[]).map(a=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface2);margin-bottom:7px">
+        <i class="ti ${icon(a.content_type)}" style="font-size:20px;color:var(--accent);flex-shrink:0"></i>
+        <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(a.filename||'file').replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--muted)">${fmtSize(a.size_bytes)}${a.uploaded_by?' \u00b7 '+a.uploaded_by:''}</div></div>
+        <a class="btn btn-sm btn-icon" href="${a.url}" target="_blank" title="Open"><i class="ti ti-external-link"></i></a>
+        <button class="btn btn-sm btn-err btn-icon" onclick="delJobDoc('${j.id}',${a.id})"><i class="ti ti-trash"></i></button>
+      </div>`).join('');
+    body.innerHTML=(rows||'<div style="color:var(--hint);font-size:12px;padding:8px">No documents attached.</div>')+
+      `<div style="margin-top:8px">
+        <input type="file" id="doc-file-${j.id}" style="display:none" onchange="uploadJobDoc('${j.id}',this)">
+        <button class="btn btn-sm btn-p" onclick="document.getElementById('doc-file-${j.id}').click()"><i class="ti ti-upload"></i>Attach Document</button>
+      </div>`;
+  }).catch(()=>{ if(curJob===j.id) body.innerHTML='<div style="color:var(--err);font-size:12px;padding:8px">Could not load attachments (is the database connected?).</div>'; });
 }
 
-function delJobDoc(jid,idx){const j=jobs.find(x=>x.id===jid);if(j&&confirm('Remove?')){j.docs.splice(idx,1);renderPanelContent();}}
-function addJobDocModal(jid){
-  openModal('Attach Document',`
-    <div class="upload-zone" style="padding:20px" onclick="this.innerHTML='<i class=\'ti ti-file-type-pdf\'></i><h3 style=\'color:var(--ok)\'>File ready</h3>'">
-      <i class="ti ti-upload"></i><h3>Click to select file</h3><p>PDF, DOCX, XLSX</p>
-    </div>
-    <div class="fg" style="margin-top:10px"><label class="fl">Label</label><input class="fc" id="doc-lbl" placeholder="Invoice, Drawing, Spec..."></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="confirmJobDoc('${jid}')">Attach</button>`);
+async function uploadJobDoc(jid, input){
+  const file=input.files&&input.files[0];
+  if(!file) return;
+  if(file.size>11*1024*1024){ showNotif('File too large','Maximum attachment size is about 11 MB.','warn'); return; }
+  showNotif('Uploading\u2026',file.name,'info');
+  try{
+    const res=await DB.uploadAttachment(jid, file);
+    if(res&&res.ok){ showNotif('Attached',file.name+' uploaded.','success'); renderPanelContent(); }
+    else { showNotif('Upload failed',(res&&res.error)||'Unknown error','error'); }
+  }catch(e){ showNotif('Upload failed',e.message,'error'); }
 }
-function confirmJobDoc(jid){
-  const j=jobs.find(x=>x.id===jid);if(!j)return;
-  const lbl=document.getElementById('doc-lbl').value||'Document';
-  if(!j.docs)j.docs=[];
-  j.docs.push({name:lbl+'.pdf',size:'—',date:new Date().toLocaleDateString()});
-  closeModal();renderPanelContent();
+
+function delJobDoc(jid,attId){
+  if(!confirm('Remove this attachment?')) return;
+  DB.deleteAttachment(attId).then(()=>{ showNotif('Removed','Attachment deleted.','warn'); renderPanelContent(); });
 }
 
 function renderPanelAI(j,body,foot){
@@ -4578,6 +4605,7 @@ function quickStatusChange(id,status){
   const j=jobs.find(x=>x.id===id);
   if(j){j.status=status;if(status==='Completed')j.completion=1;j.tl.push({done:status==='Completed',lbl:'Status → '+status,t:new Date().toLocaleString()});}
   closeModal();updateBadges();render();
+  if(j) DB.updateJob(j);
   showNotif('Status Updated',id+' → '+status,'success');
 }
 
@@ -4638,6 +4666,99 @@ function initTheme(){
 }
 
 // Init theme immediately (before DOM paint to avoid flash)
+// ═══════════════════════════════════════════════════
+//  DATABASE LAYER (Vercel Postgres via /api)
+// ═══════════════════════════════════════════════════
+const DB = {
+  enabled: true,           // set false to force pure local/in-memory mode
+  ready: false,            // becomes true once jobs load successfully
+  // Load all jobs from the server. Returns true if DB responded ok.
+  async loadJobs(){
+    if(!this.enabled) return false;
+    try{
+      const res=await fetch('/api/jobs');
+      const data=await res.json();
+      if(data.ok && Array.isArray(data.jobs)){
+        // Only replace seed data if the DB actually has rows; otherwise keep seeds
+        // so a brand-new empty DB still shows the demo data until first save.
+        if(data.jobs.length>0){ jobs=data.jobs.map(normalizeJob); }
+        this.ready=true;
+        return true;
+      }
+    }catch(e){ console.warn('DB loadJobs failed:',e.message); }
+    return false;
+  },
+  async createJob(j){
+    if(!this.enabled) return;
+    try{ await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(j)}); }
+    catch(e){ showNotif('Save warning','Saved locally but not to server: '+e.message,'warn'); }
+  },
+  async updateJob(j){
+    if(!this.enabled) return;
+    try{ await fetch('/api/jobs',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(j)}); }
+    catch(e){ showNotif('Save warning','Updated locally but not on server: '+e.message,'warn'); }
+  },
+  async deleteJob(id){
+    if(!this.enabled) return;
+    try{ await fetch('/api/jobs?id='+encodeURIComponent(id),{method:'DELETE'}); }
+    catch(e){ showNotif('Delete warning','Removed locally but not on server: '+e.message,'warn'); }
+  },
+  // Shared settings (email recipients, custom fields, letterhead, etc.)
+  async loadSettings(){
+    if(!this.enabled) return null;
+    try{ const res=await fetch('/api/settings'); const data=await res.json(); return data.ok?data.settings:null; }
+    catch(e){ return null; }
+  },
+  async saveSetting(key,value){
+    if(!this.enabled) return;
+    try{ await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value})}); }
+    catch(e){}
+  },
+  // Attachments (Vercel Blob)
+  async listAttachments(jobId){
+    if(!this.enabled) return [];
+    try{ const res=await fetch('/api/attachments?jobId='+encodeURIComponent(jobId)); const data=await res.json(); return data.ok?data.attachments:[]; }
+    catch(e){ return []; }
+  },
+  async uploadAttachment(jobId,file){
+    const dataBase64=await fileToBase64(file);
+    const res=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({jobId,filename:file.name,contentType:file.type,dataBase64,uploadedBy:(currentUser&&currentUser.name)||''})});
+    return res.json();
+  },
+  async deleteAttachment(id){
+    try{ await fetch('/api/attachments?id='+encodeURIComponent(id),{method:'DELETE'}); }catch(e){}
+  }
+};
+
+// Ensure a job loaded from DB has all fields the UI expects
+function normalizeJob(j){
+  return Object.assign({
+    materials:[], docs:[], tl:[], custom:{}, remarks:'', completion:0
+  }, j);
+}
+
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(String(r.result).split(',')[1]);
+    r.onerror=()=>reject(new Error('File read failed'));
+    r.readAsDataURL(file);
+  });
+}
+
+// Load shared settings from DB and apply them over local defaults
+async function applySharedSettings(){
+  const s=await DB.loadSettings();
+  if(!s) return;
+  try{
+    if(s.emailAlerts){ adminCfg.emailAlerts=s.emailAlerts; }
+    if(s.customFields){ adminCfg.customFields=s.customFields; }
+    if(s.letterhead){ window._letterheadDataUrl=s.letterhead; }
+    if(s.footer){ window._footerDataUrl=s.footer; }
+  }catch(e){}
+}
+
 initTheme();
 try{ const _lh=localStorage.getItem('mew-letterhead'); if(_lh) window._letterheadDataUrl=_lh; }catch(e){}
 try{ const _ea=localStorage.getItem('mew-email-alerts'); if(_ea){ const p=JSON.parse(_ea); if(p&&p.alerts){ adminCfg.emailAlerts=p; } } }catch(e){}
