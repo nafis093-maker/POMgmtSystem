@@ -8,15 +8,14 @@ function ensurePgEnv() {
 
 // Find a Blob read-write token under any name Vercel may have used.
 function findBlobToken() {
+  // 1) Manually-set variable (most reliable — you paste the token in Vercel env settings)
+  if (process.env.MEW_BLOB_TOKEN) { process.env.BLOB_READ_WRITE_TOKEN = process.env.MEW_BLOB_TOKEN; return process.env.MEW_BLOB_TOKEN; }
+  // 2) Standard auto-injected name
   if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
-  // Custom-named stores create e.g. MYSTORE_READ_WRITE_TOKEN
+  // 3) Custom-named stores create e.g. MYSTORE_READ_WRITE_TOKEN
   const key = Object.keys(process.env).find(k => /READ_WRITE_TOKEN$/.test(k) && process.env[k]);
-  if (key) {
-    // The SDK reads BLOB_READ_WRITE_TOKEN by default; mirror it so put() works without explicit token too
-    process.env.BLOB_READ_WRITE_TOKEN = process.env[key];
-    return process.env[key];
-  }
-  // Vercel blob tokens always start with vercel_blob_rw_
+  if (key) { process.env.BLOB_READ_WRITE_TOKEN = process.env[key]; return process.env[key]; }
+  // 4) By token prefix
   const byPrefix = Object.keys(process.env).find(k => String(process.env[k]).startsWith('vercel_blob_rw_'));
   if (byPrefix) { process.env.BLOB_READ_WRITE_TOKEN = process.env[byPrefix]; return process.env[byPrefix]; }
   return null;
