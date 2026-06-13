@@ -3373,11 +3373,13 @@ function qtBuildHTML(data, forExport){
     <div style="margin-top:26px"><div style="font-weight:bold">${data.signatory||'Masud Rana'} (Manager)</div>
       <div>For: Micro Engineering Workshop</div></div>
   </div>`;
-  // Export: fixed A4 page (210x297mm) as a flex column so footer pins to the very bottom.
-  // Preview: natural height with min-height so it looks page-like on screen.
+  // Page model:
+  //  - Single page: flex column + min-height 297mm pins the footer to the bottom.
+  //  - Long content: content flows; the page grows past 297mm and html2pdf paginates.
+  //    overflow is NOT hidden, so nothing is clipped across pages.
   const pageStyle=forExport
-    ? "width:210mm;min-height:297mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;margin:0;overflow:hidden"
-    : "width:100%;min-height:760px;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;overflow:hidden";
+    ? "width:210mm;min-height:297mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff;margin:0"
+    : "width:100%;min-height:760px;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Times New Roman',serif;color:#000;font-size:13px;line-height:1.5;background:#fff";
   return `<div style="${pageStyle}">
     ${header}
     ${body}
@@ -3403,7 +3405,7 @@ function exportQuotation(type){
       image:{type:'jpeg',quality:0.98},
       html2canvas:{scale:2,useCORS:true,windowWidth:794},
       jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
-      pagebreak:{mode:['avoid-all']}})
+      pagebreak:{mode:['css','legacy'],avoid:['tr','img','thead']}})
       .from(el).save();
     showNotif('Exporting PDF','Your quotation PDF is downloading.','success');
   } else {
