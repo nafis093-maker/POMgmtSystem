@@ -1116,6 +1116,7 @@ function doLogin(){
   (async()=>{
     await applySharedSettings();
     const loaded=await DB.loadJobs();
+    await DB.loadProcurement();
     if(loaded){ updateBadges(); render(); }
   })();
   setTimeout(()=>{
@@ -1173,6 +1174,7 @@ function render(){
     const items=document.getElementById('qt-items');
     if(items) items.innerHTML=qtItemsHTML();
     qtRefresh();
+    if(typeof loadQuotationsList==='function') loadQuotationsList();
   }
 }
 
@@ -2029,7 +2031,7 @@ function confirmAddProc(){
   if(!jobId||!mat)return alert('Fill required fields.');
   const uc=parseFloat(document.getElementById('np-uc').value)||0;
   const qty=parseInt(document.getElementById('np-qty').value)||0;
-  procurement.push({
+  const newProc={
     jobId,material:mat,supplier:document.getElementById('np-sup').value,
     poIssued:document.getElementById('np-poi').value,
     expectedArrival:document.getElementById('np-exp').value,actualArrival:'',
@@ -2037,8 +2039,11 @@ function confirmAddProc(){
     unitCost:uc,qty,totalCost:uc*qty,
     leadTime:parseInt(document.getElementById('np-lt').value)||7,
     altSupplier:document.getElementById('np-alt').value,readiness:0,alert:'',notes:''
-  });
-  closeModal();render();showNotif('Added','Material added to procurement tracker.','success');
+  };
+  procurement.push(newProc);
+  closeModal();render();
+  DB.createProcurement(newProc);
+  showNotif('Added','Material added to procurement tracker.','success');
 }
 
 function openEditProc(jobId){
@@ -2257,6 +2262,7 @@ function renderImportPreview(file){
 async function processPDF(file){
   const S = document.getElementById('pdf-status');
   if(!S) return;
+  window._importedFile = file; // keep reference to attach to the job on save
   const log = (msg, type='info') => {
     const colors = {info:'var(--muted)',ok:'var(--ok)',warn:'var(--warn)',err:'var(--err)'};
     const el = document.createElement('div');
@@ -3110,7 +3116,7 @@ function confirmExtract(){
     sl:String(i+1), item:(m.item||'').trim(), material:(m.material||'').trim(),
     qty:m.qty||'', unit:m.unit||'', rate:m.rate||'', amount:m.amount||''
   }));
-  jobs.unshift({
+  const importedJob={
     id,customer:document.getElementById('ex-ven').value,po:id,
     materials:materials,
     product:document.getElementById('ex-item').value,
@@ -3122,11 +3128,21 @@ function confirmExtract(){
     status:'PO Received',completion:0.10,
     supervisor:'Rahul Sharma',
     remarks:'Imported from PDF',
-    docs:[{name:id+'.pdf',size:'—',date:new Date().toLocaleDateString()}],
+    docs:[],
     tl:[{done:true,lbl:'PO imported from PDF',t:new Date().toLocaleString()},{done:false,lbl:'Material procurement',t:'Pending'},{done:false,lbl:'Production',t:'Pending'},{done:false,lbl:'Delivery',t:dd}]
-  });
+  };
+  jobs.unshift(importedJob);
   updateBadges();
   log('Job Imported',''+id+' imported from PDF.','success');
+  // Persist the new job to the database
+  DB.createJob(importedJob);
+  // Attach the original imported PDF to the job (stored in Blob)
+  if(window._importedFile){
+    const f=window._importedFile;
+    DB.uploadAttachment(id, f).then(r=>{
+      if(r&&r.ok){ showNotif('PDF attached',f.name+' saved to '+id,'success'); }
+    }).catch(()=>{});
+  }
   // Fire system email alert (only sends if recipients set + this alert enabled)
   const vendorNm=document.getElementById('ex-ven').value||'';
   const amtVal=document.getElementById('ex-amt').value||'';
@@ -3188,6 +3204,7 @@ function renderQuotation(){
   const today=new Date().toISOString().slice(0,10);
   return `<div class="sec-hdr"><div class="sec-ttl">Quotation Generator</div>
     <div style="display:flex;gap:8px">
+      <button class="btn btn-sm" onclick="saveQuotationManual()"><i class="ti ti-device-floppy"></i>Save</button>
       <button class="btn btn-sm" onclick="exportQuotation('pdf')"><i class="ti ti-file-type-pdf"></i>Export PDF</button>
       <button class="btn btn-sm btn-p" onclick="exportQuotation('word')"><i class="ti ti-file-type-docx"></i>Export Word</button>
     </div></div>
@@ -3229,7 +3246,68 @@ Offer Validity - 12 days</textarea></div>
       <div style="font-size:13px;font-weight:700;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">Live Preview</div>
       <div id="qt-preview" style="padding:16px;background:#fff;max-height:680px;overflow:auto"></div>
     </div>
+  </div>
+  <div class="tbl-wrap" style="margin-top:16px">
+    <div class="tbl-hdr"><div class="tbl-title">Saved Quotations</div>
+      <button class="btn btn-sm" onclick="loadQuotationsList()"><i class="ti ti-refresh"></i>Refresh</button>
+    </div>
+    <div id="qt-saved-list" style="padding:8px 16px;color:var(--hint);font-size:12px">Loading…</div>
   </div>`;
+}
+
+function saveCurrentQuotation(data){
+  const {grand}=qtCompute();
+  const q={ref:data.ref,toCompany:data.toCompany,toDept:data.toDept,date:data.date,
+    signatory:data.signatory,items:data.items,vatPercent:data.vatPercent,grandTotal:grand,terms:data.terms};
+  DB.saveQuotation(q).then(r=>{ if(r&&r.ok){ loadQuotationsList(); } });
+}
+
+function saveQuotationManual(){
+  const data=qtGatherData();
+  if(!data.toCompany){ showNotif('Missing Info','Enter the company name first.','warn'); return; }
+  saveCurrentQuotation(data);
+  showNotif('Quotation saved','Stored in the database.','success');
+}
+
+async function loadQuotationsList(){
+  const el=document.getElementById('qt-saved-list');
+  if(!el) return;
+  const list=await DB.loadQuotations();
+  if(!list||!list.length){ el.innerHTML='<div style="padding:6px 0">No saved quotations yet.</div>'; return; }
+  el.style.padding='0';
+  el.innerHTML='<div class="scroll-x"><table style="width:100%"><thead><tr>'+
+    '<th>Ref</th><th>Company</th><th>Date</th><th>Items</th><th>Total (Tk)</th><th></th></tr></thead><tbody>'+
+    list.map(q=>`<tr>
+      <td style="font-family:var(--mono);font-size:11px">${(q.ref||'—').replace(/</g,'&lt;')}</td>
+      <td><strong>${(q.toCompany||'—').replace(/</g,'&lt;')}</strong></td>
+      <td style="font-size:11px">${q.date||''}</td>
+      <td>${(q.items||[]).length}</td>
+      <td style="text-align:right;font-weight:600">${qtFmt(q.grandTotal||0)}</td>
+      <td style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="reopenQuotation(${q.id})" title="Load into form"><i class="ti ti-pencil"></i></button>
+        <button class="btn btn-sm btn-err" onclick="deleteQuotationRow(${q.id})"><i class="ti ti-trash"></i></button>
+      </td></tr>`).join('')+'</tbody></table></div>';
+  window._savedQuotations=list;
+}
+
+function reopenQuotation(id){
+  const q=(window._savedQuotations||[]).find(x=>x.id===id);
+  if(!q) return;
+  quotationItems=(q.items&&q.items.length?q.items:[{desc:'',qty:1,unitPrice:0}]).map(it=>({desc:it.desc||'',qty:it.qty||1,unitPrice:it.unitPrice||0}));
+  quotationVat=q.vatPercent||0;
+  const set=(idv,val)=>{const e=document.getElementById(idv);if(e)e.value=val;};
+  set('qt-ref',q.ref||''); set('qt-dept',q.toDept||''); set('qt-company',q.toCompany||'');
+  set('qt-sign',q.signatory||'Masud Rana');
+  if(q.terms&&q.terms.length){ const t=document.getElementById('qt-terms'); if(t) t.value=q.terms.join('\n'); }
+  const vatSel=document.getElementById('qt-vat'); if(vatSel) vatSel.value=String(q.vatPercent||0);
+  const items=document.getElementById('qt-items'); if(items) items.innerHTML=qtItemsHTML();
+  qtRefresh();
+  showNotif('Loaded','Quotation loaded into the form.','success');
+}
+
+function deleteQuotationRow(id){
+  if(!confirm('Delete this saved quotation?')) return;
+  DB.deleteQuotation(id).then(()=>{ showNotif('Deleted','Quotation removed.','warn'); loadQuotationsList(); });
 }
 
 function qtItemsHTML(){
@@ -3323,6 +3401,7 @@ function qtRefresh(){
 function exportQuotation(type){
   const data=qtGatherData();
   if(!data.toCompany){ showNotif('Missing Info','Enter the company name first.','warn'); return; }
+  saveCurrentQuotation(data); // persist to DB whenever exported
   if(type==='pdf'){
     const el=document.createElement('div');
     el.innerHTML=qtBuildHTML(data,true);
@@ -4726,8 +4805,52 @@ const DB = {
       body:JSON.stringify({jobId,filename:file.name,contentType:file.type,dataBase64,uploadedBy:(currentUser&&currentUser.name)||''})});
     return res.json();
   },
+  // Upload from an already-base64'd source (used for the imported PO PDF)
+  async uploadBase64(jobId,filename,contentType,dataBase64){
+    try{
+      const res=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({jobId,filename,contentType,dataBase64,uploadedBy:(currentUser&&currentUser.name)||''})});
+      return res.json();
+    }catch(e){ return {ok:false,error:e.message}; }
+  },
   async deleteAttachment(id){
     try{ await fetch('/api/attachments?id='+encodeURIComponent(id),{method:'DELETE'}); }catch(e){}
+  },
+  // Procurement
+  async loadProcurement(){
+    if(!this.enabled) return false;
+    try{
+      const res=await fetch('/api/procurement'); const data=await res.json();
+      if(data.ok && Array.isArray(data.procurement)){
+        if(data.procurement.length>0){ procurement=data.procurement; }
+        return true;
+      }
+    }catch(e){ console.warn('DB loadProcurement failed:',e.message); }
+    return false;
+  },
+  async createProcurement(p){
+    if(!this.enabled) return;
+    try{ const res=await fetch('/api/procurement',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const d=await res.json(); if(d.ok&&d.id) p.dbId=d.id; }
+    catch(e){ showNotif('Save warning','Saved locally but not to server: '+e.message,'warn'); }
+  },
+  async deleteProcurement(dbId){
+    if(!this.enabled||!dbId) return;
+    try{ await fetch('/api/procurement?id='+encodeURIComponent(dbId),{method:'DELETE'}); }catch(e){}
+  },
+  // Quotations
+  async loadQuotations(){
+    if(!this.enabled) return [];
+    try{ const res=await fetch('/api/quotations'); const data=await res.json(); return data.ok?data.quotations:[]; }
+    catch(e){ return []; }
+  },
+  async saveQuotation(q){
+    if(!this.enabled) return {ok:false};
+    try{ const res=await fetch('/api/quotations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(q)}); return res.json(); }
+    catch(e){ return {ok:false,error:e.message}; }
+  },
+  async deleteQuotation(id){
+    if(!this.enabled) return;
+    try{ await fetch('/api/quotations?id='+encodeURIComponent(id),{method:'DELETE'}); }catch(e){}
   }
 };
 
