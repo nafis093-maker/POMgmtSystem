@@ -6,36 +6,46 @@ function ensurePgEnv() {
   }
 }
 
-// Read and JSON-parse the request body whether or not Vercel pre-parsed it.
+// Find a Blob read-write token under any name Vercel may have used.
+function findBlobToken() {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  // Custom-named stores create e.g. MYSTORE_READ_WRITE_TOKEN
+  const key = Object.keys(process.env).find(k => /READ_WRITE_TOKEN$/.test(k) && process.env[k]);
+  if (key) {
+    // The SDK reads BLOB_READ_WRITE_TOKEN by default; mirror it so put() works without explicit token too
+    process.env.BLOB_READ_WRITE_TOKEN = process.env[key];
+    return process.env[key];
+  }
+  // Vercel blob tokens always start with vercel_blob_rw_
+  const byPrefix = Object.keys(process.env).find(k => String(process.env[k]).startsWith('vercel_blob_rw_'));
+  if (byPrefix) { process.env.BLOB_READ_WRITE_TOKEN = process.env[byPrefix]; return process.env[byPrefix]; }
+  return null;
+}
+
 async function readJsonBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
   if (typeof req.body === 'string' && req.body.length) {
-    try { return JSON.parse(req.body); } catch (e) { /* fall through */ }
+    try { return JSON.parse(req.body); } catch (e) {}
   }
-  // Manually read the stream
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString('utf8');
-  if (!raw) return {};
-  return JSON.parse(raw);
+  return raw ? JSON.parse(raw) : {};
 }
 
-export const config = {
-  api: { bodyParser: false },          // we parse manually to avoid the 4.5MB JSON cap
-  maxDuration: 30
-};
+export const config = { api: { bodyParser: false }, maxDuration: 30 };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
   ensurePgEnv();
 
-  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  const blobToken = findBlobToken();
   if (!blobToken) {
     return res.status(500).json({
       ok: false,
-      error: 'Blob store not connected (no BLOB_READ_WRITE_TOKEN).',
-      hint: 'Vercel: Storage -> Blob store -> Connect Project, then redeploy without build cache.',
-      envSeen: Object.keys(process.env).filter(k => /BLOB/i.test(k))
+      error: 'No Blob read-write token found in environment.',
+      hint: 'Connect the Blob store to this project (Storage -> Blob -> Connect Project) and redeploy without build cache.',
+      envSeen: Object.keys(process.env).filter(k => /BLOB|TOKEN/i.test(k))
     });
   }
 
