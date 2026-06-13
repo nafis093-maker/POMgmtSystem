@@ -927,36 +927,9 @@ let integrations = {
 // ═══════════════════════════════════════════════════
 const TODAY = new Date('2026-05-17');
 
-let jobs = [
-  {id:'JOB-001',customer:'Apex Industries',po:'PO-2024-001',product:'Steel Frame Assembly',qty:500,priority:'🔴 Critical',factory:'Factory 1',orderDate:'2026-04-17',deliveryDate:'2026-05-22',procStart:'2026-04-19',matArrival:'2026-04-27',prodStart:'2026-05-02',qcDate:'2026-05-19',dispatchDate:'2026-05-21',status:'In Production',completion:0.10,supervisor:'Rahul Sharma',remarks:'Rush order – penalty clause',materials:[{sl:'1',material:'Steel Billets 60mm',qty:'500',unit:'Pcs',rate:'4500',amount:'2250000'},{sl:'2',material:'Welding Consumables',qty:'40',unit:'Kg',rate:'320',amount:'12800'}],docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 17, 2026'},{done:true,lbl:'Material procured',t:'Apr 27, 2026'},{done:true,lbl:'Production started',t:'May 2, 2026'},{done:false,lbl:'QC scheduled',t:'May 19, 2026'},{done:false,lbl:'Dispatch',t:'May 21, 2026'}]},
-  {id:'JOB-002',customer:'TechBuild Co.',po:'PO-2024-002',product:'Aluminum Casing 200mm',qty:1200,priority:'🟡 High',factory:'Factory 2',orderDate:'2026-04-22',deliveryDate:'2026-05-29',procStart:'2026-04-24',matArrival:'2026-05-01',prodStart:'2026-05-07',qcDate:'2026-05-25',dispatchDate:'2026-05-28',status:'In Production',completion:0.62,supervisor:'Priya Nair',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 22, 2026'},{done:true,lbl:'Material received',t:'May 1, 2026'},{done:true,lbl:'Production started',t:'May 7, 2026'},{done:false,lbl:'QC',t:'May 25, 2026'},{done:false,lbl:'Dispatch',t:'May 28, 2026'}]},
-  {id:'JOB-003',customer:'GlobalMech',po:'PO-2024-003',product:'Hydraulic Valve Set',qty:300,priority:'🟢 Normal',factory:'Factory 1',orderDate:'2026-04-27',deliveryDate:'2026-06-06',procStart:'2026-04-29',matArrival:'2026-05-07',prodStart:'2026-05-12',qcDate:'2026-06-02',dispatchDate:'2026-06-05',status:'QC',completion:0.75,supervisor:'Rahul Sharma',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 27, 2026'},{done:true,lbl:'Material received',t:'May 7, 2026'},{done:true,lbl:'Production started',t:'May 12, 2026'},{done:true,lbl:'Production complete → QC',t:'May 17, 2026'},{done:false,lbl:'QC complete',t:'Jun 2, 2026'},{done:false,lbl:'Dispatch',t:'Jun 5, 2026'}]},
-  {id:'JOB-004',customer:'Vertex Corp',po:'PO-2024-004',product:'Gearbox Housing',qty:80,priority:'🟡 High',factory:'Factory 2',orderDate:'2026-05-02',deliveryDate:'2026-05-25',procStart:'2026-05-03',matArrival:'2026-05-11',prodStart:'2026-05-15',qcDate:'2026-05-22',dispatchDate:'2026-05-24',status:'In Production',completion:0.62,supervisor:'Amir Khan',remarks:'Tight deadline',docs:[],tl:[{done:true,lbl:'PO received',t:'May 2, 2026'},{done:true,lbl:'Material received',t:'May 11, 2026'},{done:true,lbl:'Production started',t:'May 15, 2026'},{done:false,lbl:'QC',t:'May 22, 2026'},{done:false,lbl:'Dispatch',t:'May 24, 2026'}]},
-  {id:'JOB-005',customer:'Apex Industries',po:'PO-2024-005',product:'Welded Bracket Set',qty:2000,priority:'🟢 Normal',factory:'Factory 1',orderDate:'2026-05-07',deliveryDate:'2026-06-16',procStart:'2026-05-08',matArrival:'2026-05-14',prodStart:'2026-05-19',qcDate:'2026-06-12',dispatchDate:'2026-06-15',status:'Material Ready',completion:0.50,supervisor:'Priya Nair',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'May 7, 2026'},{done:true,lbl:'Material arrived',t:'May 14, 2026'},{done:false,lbl:'Production start',t:'May 19, 2026'},{done:false,lbl:'QC',t:'Jun 12, 2026'},{done:false,lbl:'Dispatch',t:'Jun 15, 2026'}]},
-  {id:'JOB-006',customer:'MegaFab Ltd',po:'PO-2024-006',product:'Precision Shaft 450mm',qty:150,priority:'🔴 Critical',factory:'Factory 1',orderDate:'2026-04-12',deliveryDate:'2026-05-15',procStart:'2026-04-14',matArrival:'2026-04-22',prodStart:'2026-04-25',qcDate:'2026-05-09',dispatchDate:'2026-05-14',status:'Ready to Dispatch',completion:0.88,supervisor:'Rahul Sharma',remarks:'OVERDUE – Dispatch today',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 12, 2026'},{done:true,lbl:'Material received',t:'Apr 22, 2026'},{done:true,lbl:'Production complete',t:'May 9, 2026'},{done:true,lbl:'QC passed',t:'May 14, 2026'},{done:false,lbl:'Dispatch — OVERDUE',t:'May 15, 2026 (OVERDUE)'}]},
-  {id:'JOB-007',customer:'TechBuild Co.',po:'PO-2024-007',product:'Control Panel Frame',qty:60,priority:'🟢 Normal',factory:'Factory 2',orderDate:'2026-05-12',deliveryDate:'2026-07-01',procStart:'2026-05-13',matArrival:'2026-05-22',prodStart:'2026-05-29',qcDate:'2026-06-26',dispatchDate:'2026-06-30',status:'Material Procurement',completion:0.38,supervisor:'Amir Khan',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'May 12, 2026'},{done:false,lbl:'Material arrival',t:'May 22, 2026'},{done:false,lbl:'Production start',t:'May 29, 2026'},{done:false,lbl:'QC',t:'Jun 26, 2026'},{done:false,lbl:'Dispatch',t:'Jun 30, 2026'}]},
-  {id:'JOB-008',customer:'Orion Systems',po:'PO-2024-008',product:'Conveyor Rail 6m',qty:25,priority:'🟡 High',factory:'Factory 2',orderDate:'2026-04-07',deliveryDate:'2026-05-12',procStart:'2026-04-09',matArrival:'2026-04-17',prodStart:'2026-04-19',qcDate:'2026-05-05',dispatchDate:'2026-05-11',status:'Completed',completion:1.00,supervisor:'Priya Nair',remarks:'Delivered on time',docs:[],tl:[{done:true,lbl:'PO received',t:'Apr 7, 2026'},{done:true,lbl:'Material received',t:'Apr 17, 2026'},{done:true,lbl:'Production complete',t:'May 5, 2026'},{done:true,lbl:'QC passed',t:'May 11, 2026'},{done:true,lbl:'Delivered on time',t:'May 12, 2026'}]},
-  {id:'JOB-009',customer:'GlobalMech',po:'PO-2024-009',product:'Pump Impeller',qty:400,priority:'🟢 Normal',factory:'Factory 1',orderDate:'2026-05-14',deliveryDate:'2026-07-11',procStart:'2026-05-15',matArrival:'2026-05-25',prodStart:'2026-06-04',qcDate:'2026-07-06',dispatchDate:'2026-07-10',status:'PO Received',completion:0.25,supervisor:'Rahul Sharma',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'May 14, 2026'},{done:false,lbl:'Material arrival',t:'May 25, 2026'},{done:false,lbl:'Production start',t:'Jun 4, 2026'},{done:false,lbl:'QC',t:'Jul 6, 2026'},{done:false,lbl:'Dispatch',t:'Jul 10, 2026'}]},
-  {id:'JOB-010',customer:'Vertex Corp',po:'PO-2024-010',product:'Stainless Flange DN100',qty:600,priority:'🟢 Normal',factory:'Factory 2',orderDate:'2026-05-09',deliveryDate:'2026-06-21',procStart:'2026-05-10',matArrival:'2026-05-19',prodStart:'2026-05-27',qcDate:'2026-06-17',dispatchDate:'2026-06-20',status:'Material Procurement',completion:0.38,supervisor:'Amir Khan',remarks:'',docs:[],tl:[{done:true,lbl:'PO received',t:'May 9, 2026'},{done:false,lbl:'Material arrival',t:'May 19, 2026'},{done:false,lbl:'Production start',t:'May 27, 2026'},{done:false,lbl:'QC',t:'Jun 17, 2026'},{done:false,lbl:'Dispatch',t:'Jun 20, 2026'}]},
-  {id:'JOB-011',customer:'MegaFab Ltd',po:'PO-2024-011',product:'Bearing Housing Block',qty:90,priority:'🔴 Critical',factory:'Factory 1',orderDate:'2026-05-05',deliveryDate:'2026-05-20',procStart:'2026-05-06',matArrival:'2026-05-13',prodStart:'2026-05-16',qcDate:'2026-05-18',dispatchDate:'2026-05-19',status:'In Production',completion:0.62,supervisor:'Rahul Sharma',remarks:'Critical – near deadline',docs:[],tl:[{done:true,lbl:'PO received',t:'May 5, 2026'},{done:true,lbl:'Material received',t:'May 13, 2026'},{done:true,lbl:'Production started',t:'May 16, 2026'},{done:false,lbl:'QC',t:'May 18, 2026'},{done:false,lbl:'Dispatch',t:'May 19, 2026'}]},
-  {id:'JOB-012',customer:'Apex Industries',po:'PO-2024-012',product:'Motor Mount Bracket',qty:1500,priority:'🟢 Normal',factory:'Factory 2',orderDate:'2026-05-16',deliveryDate:'2026-07-16',procStart:'2026-05-17',matArrival:'2026-05-29',prodStart:'2026-06-08',qcDate:'2026-07-12',dispatchDate:'2026-07-15',status:'Quote Sent',completion:0.12,supervisor:'Priya Nair',remarks:'',docs:[],tl:[{done:true,lbl:'Quote sent',t:'May 16, 2026'},{done:false,lbl:'PO expected',t:'May 20, 2026'},{done:false,lbl:'Material procurement',t:'May 29, 2026'},{done:false,lbl:'Production',t:'Jun 8, 2026'}]},
-  {id:'JOB-013',customer:'Apex Industries',po:'PO-130-2201',product:'Tank',qty:200,priority:'🟡 High',factory:'Factory 1',orderDate:'2026-05-17',deliveryDate:'2026-07-16',procStart:'2026-05-18',matArrival:'2026-05-30',prodStart:'2026-06-09',qcDate:'2026-07-13',dispatchDate:'2026-07-16',status:'RFQ',completion:0.10,supervisor:'Sakib Ahmed',remarks:'Critical – near deadline',docs:[],tl:[{done:false,lbl:'RFQ in progress',t:'May 17, 2026'}]},
-];
+let jobs = [];
 
-let procurement = [
-  {jobId:'JOB-001',material:'Steel Billets 60mm',supplier:'SteelMart Pvt',poIssued:'2026-04-19',expectedArrival:'2026-04-27',actualArrival:'2026-04-27',status:'✅ Received',daysDelayed:0,unitCost:4500,qty:500,totalCost:2250000,leadTime:8,altSupplier:'-',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-002',material:'Aluminum Bar 200mm',supplier:'AlumX India',poIssued:'2026-04-24',expectedArrival:'2026-05-01',actualArrival:'2026-05-01',status:'✅ Received',daysDelayed:0,unitCost:3200,qty:1200,totalCost:3840000,leadTime:7,altSupplier:'MetalSource',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-003',material:'Hydraulic Fittings',supplier:'FluidTech',poIssued:'2026-04-29',expectedArrival:'2026-05-07',actualArrival:'2026-05-07',status:'✅ Received',daysDelayed:0,unitCost:850,qty:300,totalCost:255000,leadTime:8,altSupplier:'-',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-004',material:'Cast Iron Billet',supplier:'CastMasters',poIssued:'2026-05-03',expectedArrival:'2026-05-11',actualArrival:'2026-05-11',status:'✅ Received',daysDelayed:0,unitCost:6200,qty:80,totalCost:496000,leadTime:8,altSupplier:'-',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-005',material:'MS Sheet 3mm',supplier:'SteelMart Pvt',poIssued:'2026-05-08',expectedArrival:'2026-05-14',actualArrival:'',status:'🚚 In Transit',daysDelayed:3,unitCost:2100,qty:2000,totalCost:4200000,leadTime:6,altSupplier:'IronWorks Co',readiness:0,alert:'🚨 DELAYED 3 DAYS',notes:'ETA confirmed'},
-  {jobId:'JOB-006',material:'Stainless Rod 450mm',supplier:'PrecisionSteel',poIssued:'2026-04-14',expectedArrival:'2026-04-22',actualArrival:'2026-04-22',status:'✅ Received',daysDelayed:0,unitCost:7800,qty:150,totalCost:1170000,leadTime:8,altSupplier:'-',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-007',material:'Control Box Steel',supplier:'SheetMetalPro',poIssued:'2026-05-13',expectedArrival:'2026-05-22',actualArrival:'',status:'📋 PO Sent',daysDelayed:0,unitCost:1500,qty:60,totalCost:90000,leadTime:9,altSupplier:'FormTech',readiness:0,alert:'',notes:'Awaiting dispatch'},
-  {jobId:'JOB-008',material:'Conveyor Rails',supplier:'RailTech',poIssued:'2026-04-09',expectedArrival:'2026-04-17',actualArrival:'2026-04-17',status:'✅ Received',daysDelayed:0,unitCost:12000,qty:25,totalCost:300000,leadTime:8,altSupplier:'-',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-009',material:'Pump Castings',supplier:'CastMasters',poIssued:'2026-05-15',expectedArrival:'2026-05-25',actualArrival:'',status:'📋 PO Sent',daysDelayed:0,unitCost:3400,qty:400,totalCost:1360000,leadTime:10,altSupplier:'GlobalCast',readiness:0,alert:'',notes:''},
-  {jobId:'JOB-010',material:'Stainless Flat Bar',supplier:'PrecisionSteel',poIssued:'2026-05-10',expectedArrival:'2026-05-19',actualArrival:'',status:'🚚 In Transit',daysDelayed:0,unitCost:5600,qty:600,totalCost:3360000,leadTime:9,altSupplier:'-',readiness:0,alert:'⚠ DUE SOON',notes:''},
-  {jobId:'JOB-011',material:'Bearing Steel Block',supplier:'HardMetals',poIssued:'2026-05-06',expectedArrival:'2026-05-13',actualArrival:'2026-05-13',status:'✅ Received',daysDelayed:0,unitCost:9200,qty:90,totalCost:828000,leadTime:7,altSupplier:'-',readiness:1,alert:'',notes:''},
-  {jobId:'JOB-012',material:'Motor Mount Steel',supplier:'SteelMart Pvt',poIssued:'2026-05-17',expectedArrival:'2026-05-29',actualArrival:'',status:'📋 PO Sent',daysDelayed:0,unitCost:2300,qty:1500,totalCost:3450000,leadTime:12,altSupplier:'MetalSource',readiness:0,alert:'',notes:'New order'},
-];
+let procurement = [];
 
 let activityLog = [];
 let aiChats = {};
@@ -1115,9 +1088,9 @@ function doLogin(){
   // Load data from the database (replaces seed data if the DB has rows)
   (async()=>{
     await applySharedSettings();
-    const loaded=await DB.loadJobs();
+    await DB.loadJobs();
     await DB.loadProcurement();
-    if(loaded){ updateBadges(); render(); }
+    updateBadges(); render();
   })();
   setTimeout(()=>{
     const al=activeAlerts();
@@ -4758,9 +4731,7 @@ const DB = {
       const res=await fetch('/api/jobs');
       const data=await res.json();
       if(data.ok && Array.isArray(data.jobs)){
-        // Only replace seed data if the DB actually has rows; otherwise keep seeds
-        // so a brand-new empty DB still shows the demo data until first save.
-        if(data.jobs.length>0){ jobs=data.jobs.map(normalizeJob); }
+        jobs=data.jobs.map(normalizeJob);
         this.ready=true;
         return true;
       }
@@ -4822,7 +4793,7 @@ const DB = {
     try{
       const res=await fetch('/api/procurement'); const data=await res.json();
       if(data.ok && Array.isArray(data.procurement)){
-        if(data.procurement.length>0){ procurement=data.procurement; }
+        procurement=data.procurement;
         return true;
       }
     }catch(e){ console.warn('DB loadProcurement failed:',e.message); }
