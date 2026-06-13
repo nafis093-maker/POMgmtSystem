@@ -710,14 +710,14 @@ tbody tr:hover{transform:translateX(2px)}
         </button>
       </div>
     <div class="login-err" id="login-err"><i class="ti ti-alert-circle"></i> <span id="login-err-msg">Invalid credentials</span></div>
-    <div class="fg"><label class="fl">Email</label><input class="fc" id="l-email" type="email" placeholder="manager@factory.com" value="manager@factory.com"></div>
-    <div class="fg"><label class="fl">Password</label><input class="fc" id="l-pass" type="password" placeholder="••••••••" value="admin123" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="fg"><label class="fl">Email</label><input class="fc" id="l-email" type="email" placeholder="you@company.com" value=""></div>
+    <div class="fg"><label class="fl">Password</label><input class="fc" id="l-pass" type="password" placeholder="••••••••" value="" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer"><input type="checkbox" checked style="accent-color:var(--accent)"> Remember me</label>
       <span style="font-size:12px;color:var(--accent);cursor:pointer">Forgot password?</span>
     </div>
     <button class="btn btn-p" style="width:100%;justify-content:center;padding:10px" onclick="doLogin()"><i class="ti ti-login"></i>Sign In</button>
-    <div style="margin-top:16px;text-align:center;font-size:12px;color:var(--muted)">Demo: manager@factory.com / admin123</div>
+    <div style="margin-top:18px;text-align:center;font-size:12px;color:var(--muted)">Developed for Micro Engineering Workshop</div>
   </div>
 </div>
 
@@ -1498,6 +1498,7 @@ function kbDrop(e,newStatus){
   updateBadges();
   render();
   DB.updateJob(j);
+  if(newStatus==='Completed') fireJobCompletedAlert(j);
   showNotif('Status Updated',jobId+': '+oldStatus+' → '+newStatus,'success');
 }
 
@@ -2160,7 +2161,16 @@ function confirmEditProc(jobId){
   p.altSupplier=document.getElementById('ep-alt').value;
   p.notes=document.getElementById('ep-notes').value;
   p.alert=p.daysDelayed>0?`🚨 DELAYED ${p.daysDelayed} DAYS`:p.status.includes('Transit')?'⚠ DUE SOON':'';
-  closeModal();render();showNotif('Saved','Procurement updated.','success');
+  closeModal();render();
+  if(p.dbId){ DB.createProcurement(p); } // upsert latest values
+  if(p.daysDelayed>0){
+    sendSystemAlert('material_delayed',
+      'Material Delayed: '+(p.material||'')+' ('+jobId+')',
+      'A material has been flagged as delayed.\n\nMaterial: '+(p.material||'')+'\nSupplier: '+(p.supplier||'')+'\nDays delayed: '+p.daysDelayed+'\nJob: '+jobId,
+      '<h3>Material Delayed</h3><table cellpadding="6" style="border-collapse:collapse"><tr><td><strong>Material</strong></td><td>'+(p.material||'')+'</td></tr><tr><td><strong>Supplier</strong></td><td>'+(p.supplier||'')+'</td></tr><tr><td><strong>Days Delayed</strong></td><td>'+p.daysDelayed+'</td></tr><tr><td><strong>Job</strong></td><td>'+jobId+'</td></tr></table>'
+    );
+  }
+  showNotif('Saved','Procurement updated.','success');
 }
 
 // ═══════════════════════════════════════════════════
@@ -3338,7 +3348,17 @@ function saveCurrentQuotation(data){
   const rawDate=(document.getElementById('qt-date')||{}).value||''; // ISO yyyy-mm-dd for DB
   const q={ref:data.ref,toCompany:data.toCompany,toDept:data.toDept,date:rawDate,
     signatory:data.signatory,items:data.items,vatPercent:data.vatPercent,grandTotal:grand,terms:data.terms};
-  return DB.saveQuotation(q).then(r=>{ if(r&&r.ok){ loadQuotationsList(); } return r; });
+  return DB.saveQuotation(q).then(r=>{
+    if(r&&r.ok){
+      loadQuotationsList();
+      sendSystemAlert('quotation_sent',
+        'Quotation Generated: '+(data.toCompany||''),
+        'A quotation was generated.\n\nCompany: '+(data.toCompany||'')+'\nRef: '+(data.ref||'')+'\nTotal: Tk '+qtFmt(grand),
+        '<h3>Quotation Generated</h3><table cellpadding="6" style="border-collapse:collapse"><tr><td><strong>Company</strong></td><td>'+(data.toCompany||'')+'</td></tr><tr><td><strong>Ref</strong></td><td>'+(data.ref||'')+'</td></tr><tr><td><strong>Total</strong></td><td>Tk '+qtFmt(grand)+'</td></tr></table>'
+      );
+    }
+    return r;
+  });
 }
 
 function saveQuotationManual(){
@@ -4276,7 +4296,7 @@ function renderAdminEmailAlerts(){
     <div class="field-builder">
       ${ea.alerts.map(a=>`<div class="frow">
         <div class="frow-info">
-          <div class="frow-lbl">${a.lbl}</div>
+          <div class="frow-lbl">${a.lbl} ${(a.id==='po_overdue'||a.id==='daily_summary')?'<span class="badge" style="background:var(--warn-bg);color:var(--warn);font-size:9px">SCHEDULED</span>':'<span class="badge" style="background:var(--ok-bg);color:var(--ok);font-size:9px">AUTO</span>'}</div>
           <div class="frow-meta">${a.desc}</div>
         </div>
         <div class="frow-acts">
@@ -4291,13 +4311,18 @@ function renderAdminEmailAlerts(){
     </div>
     <div class="alert alert-info" style="margin-top:16px;font-size:12px">
       <i class="ti ti-info-circle"></i>
-      <div>Email sending requires the SMTP backend to be configured (Integrations → SMTP). Set <code>SMTP_USER</code> and <code>SMTP_PASS</code> (Gmail app password) in Vercel and redeploy.</div>
+      <div><strong>AUTO</strong> alerts fire instantly when the event happens in the app (e.g. importing a PO, completing a job). <strong>SCHEDULED</strong> alerts (Overdue, Daily Summary) require a server-side scheduler that runs even when no one is using the app — this is not yet enabled. Email sending requires SMTP configured (Integrations → SMTP) with <code>SMTP_USER</code> and <code>SMTP_PASS</code> set in Vercel.</div>
     </div>`;
 }
 
 function toggleEmailAlert(id,el){
   const a=adminCfg.emailAlerts.alerts.find(x=>x.id===id);
-  if(a){ a.on=!a.on; el.classList.toggle('on',a.on); }
+  if(a){
+    a.on=!a.on; el.classList.toggle('on',a.on);
+    // Persist immediately so the change isn't lost if the user navigates away without clicking Save
+    try{ localStorage.setItem('mew-email-alerts', JSON.stringify(adminCfg.emailAlerts)); }catch(e){}
+    DB.saveSetting('emailAlerts', adminCfg.emailAlerts);
+  }
 }
 
 function saveEmailAlerts(){
@@ -4347,6 +4372,16 @@ async function sendSystemAlert(alertId, subject, bodyText, bodyHtml){
     const data=await resp.json().catch(()=>({ok:false}));
     return !!(resp.ok && data.ok);
   }catch(e){ return false; }
+}
+
+// Fire the "job completed" alert (only sends if enabled + recipients set)
+function fireJobCompletedAlert(j){
+  if(!j) return;
+  sendSystemAlert('job_completed',
+    'Job Completed: '+j.id,
+    'Job '+j.id+' has been marked complete.\n\nCustomer: '+(j.customer||'')+'\nProduct: '+(j.product||'')+'\nQuantity: '+(j.qty||''),
+    '<h3>Job Completed</h3><table cellpadding="6" style="border-collapse:collapse"><tr><td><strong>Job</strong></td><td>'+j.id+'</td></tr><tr><td><strong>Customer</strong></td><td>'+(j.customer||'')+'</td></tr><tr><td><strong>Product</strong></td><td>'+(j.product||'')+'</td></tr><tr><td><strong>Quantity</strong></td><td>'+(j.qty||'')+'</td></tr></table>'
+  );
 }
 
 function renderAdminLetterhead(){
@@ -4869,6 +4904,7 @@ function quickStatusChange(id,status){
   if(j){j.status=status;if(status==='Completed')j.completion=1;j.tl.push({done:status==='Completed',lbl:'Status → '+status,t:new Date().toLocaleString()});}
   closeModal();updateBadges();render();
   if(j) DB.updateJob(j);
+  if(j && status==='Completed') fireJobCompletedAlert(j);
   showNotif('Status Updated',id+' → '+status,'success');
 }
 
@@ -5079,9 +5115,6 @@ try{ const _ea=localStorage.getItem('mew-email-alerts'); if(_ea){ const p=JSON.p
 //  BOOT
 // ═══════════════════════════════════════════════════
 updateBadges();
-// Auto-login for demo (remove in production)
-// doLogin();  // Remove this line to show login screen
-
 // Show login screen — user must sign in
 document.getElementById('login-screen').style.display='flex';
 document.getElementById('app-shell').style.display='none';
