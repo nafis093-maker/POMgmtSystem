@@ -4265,6 +4265,7 @@ const adminTabs=[
   {id:'notif-rules',lbl:'Notification Rules',ic:'ti-bell-cog'},
   {id:'email-alerts',lbl:'Email Alerts',ic:'ti-mail-cog'},
   {id:'letterhead',lbl:'Letterhead',ic:'ti-photo'},
+  {id:'backup',lbl:'Backup & Restore',ic:'ti-database-export'},
 ];
 function renderAdmin(){
   return `<div class="admin-wrap">
@@ -4277,7 +4278,7 @@ function renderAdmin(){
 }
 
 function renderAdminSection(){
-  const fn={'custom-fields':renderAdminCF,'task-templates':renderAdminTT,'po-fields':renderAdminPF,'notif-rules':renderAdminNR,'email-alerts':renderAdminEmailAlerts,'letterhead':renderAdminLetterhead};
+  const fn={'custom-fields':renderAdminCF,'task-templates':renderAdminTT,'po-fields':renderAdminPF,'notif-rules':renderAdminNR,'email-alerts':renderAdminEmailAlerts,'letterhead':renderAdminLetterhead,'backup':renderAdminBackup};
   return (fn[curAdminTab]||renderAdminCF)();
 }
 
@@ -4401,6 +4402,86 @@ function renderAdminLetterhead(){
         <div style="margin-top:10px"><button class="btn btn-sm btn-err" onclick="lhRemove()"><i class="ti ti-trash"></i>Remove Letterhead</button></div>`
         : `<div style="color:var(--muted);font-size:12px;padding:24px">No letterhead uploaded. Quotations will use a default text header (MICRO ENGINEERING WORKSHOP).</div>`}
     </div>`;
+}
+
+function renderAdminBackup(){
+  return `<div class="admin-sec-ttl"><i class="ti ti-database-export" style="color:var(--accent)"></i>Backup &amp; Restore</div>
+    <div class="admin-sec-sub">Download a complete copy of all your data, or restore from a previous backup. Keep regular backups so your data is safe regardless of the hosting service.</div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:6px"><i class="ti ti-download" style="color:var(--accent);margin-right:6px"></i>Download Backup</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Exports every job, procurement entry, quotation, setting, and attachment index into a single JSON file. Save it somewhere safe (Google Drive, your computer). Attachment files themselves stay in cloud storage; this saves their links.</div>
+      <button class="btn btn-sm btn-p" onclick="downloadBackup()"><i class="ti ti-download"></i>Download Backup Now</button>
+      <span id="backup-status" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:700;margin-bottom:6px"><i class="ti ti-upload" style="color:var(--accent);margin-right:6px"></i>Restore from Backup</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Load data from a backup file. Choose how to apply it:</div>
+      <div class="fg" style="margin-bottom:12px">
+        <label class="fl">Restore mode</label>
+        <select class="fc" id="restore-mode" style="max-width:340px">
+          <option value="merge">Merge — add/update records, keep existing data (safe)</option>
+          <option value="replace">Replace — wipe current data first, then restore</option>
+        </select>
+      </div>
+      <input type="file" id="restore-file" accept="application/json,.json" style="display:none" onchange="restoreBackup(this)">
+      <button class="btn btn-sm" onclick="document.getElementById('restore-file').click()"><i class="ti ti-upload"></i>Choose Backup File &amp; Restore</button>
+      <span id="restore-status" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+      <div class="alert alert-info" style="margin-top:14px;font-size:12px">
+        <i class="ti ti-info-circle"></i>
+        <div><strong>Merge</strong> is recommended — it updates matching jobs and adds anything missing without deleting current data. <strong>Replace</strong> permanently deletes all current jobs, procurement, quotations, and attachment links before restoring, so use it only on a fresh or known-bad database.</div>
+      </div>
+    </div>`;
+}
+
+function downloadBackup(){
+  const s=document.getElementById('backup-status');
+  if(s) s.textContent='Preparing…';
+  // The GET endpoint returns a file with Content-Disposition; open it to trigger download
+  fetch('/api/backup').then(async resp=>{
+    if(!resp.ok){ const t=await resp.text(); throw new Error('HTTP '+resp.status+': '+t.slice(0,120)); }
+    const blob=await resp.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='MEW_backup_'+new Date().toISOString().slice(0,10)+'.json';
+    a.click(); URL.revokeObjectURL(url);
+    if(s) s.textContent='Downloaded ✓';
+    showNotif('Backup downloaded','Keep this file somewhere safe.','success');
+  }).catch(e=>{
+    if(s) s.textContent='';
+    showNotif('Backup failed', e.message, 'error');
+  });
+}
+
+async function restoreBackup(input){
+  const file=input.files&&input.files[0];
+  if(!file) return;
+  const mode=(document.getElementById('restore-mode')||{}).value||'merge';
+  const s=document.getElementById('restore-status');
+  if(mode==='replace' && !confirm('REPLACE mode will permanently delete all current data before restoring. Continue?')){ input.value=''; return; }
+  if(s) s.textContent='Reading file…';
+  try{
+    const text=await file.text();
+    const data=JSON.parse(text);
+    if(!data || !Array.isArray(data.jobs)) throw new Error('This does not look like a valid backup file.');
+    if(s) s.textContent='Restoring…';
+    const resp=await fetch('/api/backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data,mode})});
+    const result=await resp.json();
+    if(!resp.ok || !result.ok) throw new Error(result.error||('HTTP '+resp.status));
+    const r=result.restored;
+    if(s) s.textContent='Restored ✓';
+    showNotif('Restore complete', `Jobs: ${r.jobs}, Procurement: ${r.procurement}, Quotations: ${r.quotations}, Settings: ${r.settings}, Attachments: ${r.attachments}`,'success');
+    // Reload data from DB so the UI reflects the restore
+    await applySharedSettings();
+    await DB.loadJobs();
+    await DB.loadProcurement();
+    updateBadges(); render();
+  }catch(e){
+    if(s) s.textContent='';
+    showNotif('Restore failed', e.message, 'error');
+  }
+  input.value='';
 }
 
 function lhUpload(file){
