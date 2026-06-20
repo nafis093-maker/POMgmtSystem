@@ -870,6 +870,7 @@ const USERS = [
 const ROLES = {
   admin:{
     label:'Administrator',color:'var(--err)',bg:'var(--err-bg)',
+    menus:{dashboard:true,alerts:true,orders:true,kanban:true,gantt:true,reports:true,factory:true,procurement:true,import:true,quotation:true,integrations:true,access:true,admin:true,settings:true},
     perms:{
       'Purchase Orders':{'Create PO':true,'Edit PO':true,'Delete PO':true,'View All POs':true,'Export CSV':true},
       'Tasks':{'Answer Tasks':true,'Add Tasks':true,'Delete Tasks':true},
@@ -879,6 +880,7 @@ const ROLES = {
   },
   officer:{
     label:'Procurement Officer',color:'var(--accent)',bg:'var(--al)',
+    menus:{dashboard:true,alerts:true,orders:true,kanban:true,gantt:true,reports:true,factory:true,procurement:true,import:true,quotation:true,integrations:false,access:false,admin:false,settings:false},
     perms:{
       'Purchase Orders':{'Create PO':true,'Edit PO':true,'Delete PO':false,'View All POs':true,'Export CSV':true},
       'Tasks':{'Answer Tasks':true,'Add Tasks':true,'Delete Tasks':false},
@@ -888,6 +890,7 @@ const ROLES = {
   },
   viewer:{
     label:'Viewer',color:'var(--ok)',bg:'var(--ok-bg)',
+    menus:{dashboard:true,alerts:true,orders:true,kanban:true,gantt:true,reports:true,factory:true,procurement:true,import:false,quotation:false,integrations:false,access:false,admin:false,settings:false},
     perms:{
       'Purchase Orders':{'Create PO':false,'Edit PO':false,'Delete PO':false,'View All POs':true,'Export CSV':false},
       'Tasks':{'Answer Tasks':false,'Add Tasks':false,'Delete Tasks':false},
@@ -896,6 +899,44 @@ const ROLES = {
     }
   }
 };
+
+// Friendly labels for each menu key (used in Access Control UI)
+const MENU_LABELS={dashboard:'Dashboard',alerts:'Alerts',orders:'Order Entry',kanban:'Kanban Board',gantt:'Gantt Chart',reports:'Reports',factory:'Factory Board',procurement:'Procurement',import:'Import PDF / Email',quotation:'Quotation Generator',integrations:'Integrations',access:'Access Control',admin:'Admin Panel',settings:'Settings'};
+// These are admin-only and never shown to other roles regardless of menu settings
+const ADMIN_ONLY_MENUS=['integrations','access','admin','settings'];
+
+// Show/hide sidebar items based on the signed-in user's role menus
+function applyRoleVisibility(user){
+  const role=ROLES[user.role]||{};
+  const menus=role.menus||{};
+  document.querySelectorAll('.sb-item[data-v]').forEach(el=>{
+    const v=el.getAttribute('data-v');
+    let allowed = menus[v]!==false; // default visible unless explicitly false
+    // Admin-only menus are hidden for everyone except the admin role
+    if(ADMIN_ONLY_MENUS.includes(v) && user.role!=='admin') allowed=false;
+    el.style.display = allowed ? '' : 'none';
+  });
+  // Hide an entire sidebar group if all its items are hidden
+  document.querySelectorAll('.sb-grp').forEach(grp=>{
+    const items=grp.querySelectorAll('.sb-item[data-v]');
+    if(items.length){
+      const anyVisible=Array.from(items).some(i=>i.style.display!=='none');
+      grp.style.display=anyVisible?'':'none';
+    }
+  });
+  // New Job button depends on create permission
+  const njb=document.getElementById('new-job-btn');
+  if(njb) njb.style.display=canDo('Create PO')?'':'none';
+}
+
+// Guard: can the current user open this view?
+function canAccessMenu(v){
+  if(!currentUser) return false;
+  const role=ROLES[currentUser.role]||{};
+  const menus=role.menus||{};
+  if(ADMIN_ONLY_MENUS.includes(v) && currentUser.role!=='admin') return false;
+  return menus[v]!==false;
+}
 
 let currentUser = null;
 
@@ -1087,13 +1128,13 @@ function doLogin(){
     errEl.classList.add('show'); return;
   }
   currentUser=user;
+  curView='dashboard';   // always start fresh so previous user's view doesn't linger
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-shell').style.display='flex';
   document.getElementById('user-av').textContent=user.avatar;
   document.getElementById('user-nm').textContent=user.name;
   document.getElementById('user-rl').textContent=ROLES[user.role]?.label||user.role;
-  if(user.role!=='admin') document.getElementById('admin-nav-grp').style.display='none';
-  if(!canDo('Create PO')) document.getElementById('new-job-btn').style.display='none';
+  applyRoleVisibility(user);
   updateBadges();render();
   // Load data from the database (replaces seed data if the DB has rows)
   (async()=>{
@@ -1113,7 +1154,15 @@ function doLogin(){
     else showNotif('Welcome, '+user.name,'Manufacturing system ready.','success');
   },800);
 }
-function doLogout(){if(!confirm('Sign out?'))return;currentUser=null;document.getElementById('app-shell').style.display='none';document.getElementById('login-screen').style.display='flex';}
+function doLogout(){
+  if(!confirm('Sign out?'))return;
+  currentUser=null;
+  curView='dashboard';
+  document.getElementById('l-email').value='';
+  document.getElementById('l-pass').value='';
+  document.getElementById('app-shell').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+}
 
 
 // ═══════════════════════════════════════════════════
@@ -1136,6 +1185,7 @@ const pgInfo={
 };
 
 function nav(v){
+  if(!canAccessMenu(v)){ showNotif('Access denied','You do not have permission to view that section.','warn'); return; }
   curView=v;
   document.querySelectorAll('.sb-item').forEach(el=>el.classList.remove('active'));
   const el=document.querySelector(`.sb-item[data-v="${v}"]`);
@@ -4128,6 +4178,21 @@ function renderAccess(){
         <i class="ti ti-chevron-down" style="color:var(--muted)"></i>
       </div>
       <div class="role-body" id="role-${rk}">
+        <div class="perm-group">
+          <div class="perm-group-label">Menu Access <span style="font-weight:400;color:var(--muted);font-size:11px">— which sidebar sections this role can open</span></div>
+          ${Object.keys(MENU_LABELS).map(mk=>{
+            const adminOnly=ADMIN_ONLY_MENUS.includes(mk);
+            const on=(rv.menus&&rv.menus[mk]!==false) && !(adminOnly && rk!=='admin');
+            const lockable=adminOnly && rk!=='admin';
+            return `<div class="perm-item">
+                <div><div class="perm-name">${MENU_LABELS[mk]}</div>${adminOnly?'<div style="font-size:10px;color:var(--muted)">admin-only</div>':''}</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;color:${on?'var(--ok)':'var(--err)'}">${on?'✓ Visible':'✗ Hidden'}</span>
+                  ${(rk==='admin'||lockable)?'<span class="tag" style="font-size:10px">'+(rk==='admin'?'fixed':'locked')+'</span>':`<div class="toggle ${on?'on':''}" onclick="toggleMenu('${rk}','${mk}',this)"></div>`}
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
         ${Object.entries(rv.perms).map(([grp,perms])=>`
           <div class="perm-group">
             <div class="perm-group-label">${grp}</div>
@@ -4191,6 +4256,20 @@ function togglePerm(role,grp,perm,el){
     if(span){const allowed=ROLES[role].perms[grp][perm];span.textContent=allowed?'✓ Allowed':'✗ Denied';span.style.color=allowed?'var(--ok)':'var(--err)';}
     saveAccessControl();
   }
+}
+
+function toggleMenu(role,menuKey,el){
+  if(ADMIN_ONLY_MENUS.includes(menuKey) && role!=='admin') return; // can't grant admin-only to others
+  if(!ROLES[role]) return;
+  if(!ROLES[role].menus) ROLES[role].menus={};
+  const current=ROLES[role].menus[menuKey]!==false; // current effective state
+  const now=!current;
+  ROLES[role].menus[menuKey]=now;
+  el.classList.toggle('on',now);
+  const span=el.previousElementSibling;
+  if(span){span.textContent=now?'✓ Visible':'✗ Hidden';span.style.color=now?'var(--ok)':'var(--err)';}
+  saveAccessControl();
+  if(currentUser && currentUser.role===role) applyRoleVisibility(currentUser);
 }
 
 // Persist users + role permissions to the shared settings table
