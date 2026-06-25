@@ -3700,7 +3700,7 @@ function exportQuotationWord(data){
 }
 
 function _buildQuotationWord(docx, data){
-  const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,AlignmentType,ImageRun}=docx;
+  const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,AlignmentType,ImageRun,TabStopType,TabStopPosition,BorderStyle}=docx;
   const {rows,grand}=qtCompute();
   const hasVat=data.vatPercent>0;
   const F="Times New Roman";
@@ -3713,7 +3713,8 @@ function _buildQuotationWord(docx, data){
   if(quotationCols.remarks) hdrLabels.push('Remarks');
   if(hasVat) hdrLabels.push('VAT '+data.vatPercent+'%');
   hdrLabels.push(hasVat?'Total':'Total Taka');
-  const headerRow=new TableRow({tableHeader:true,children:hdrLabels.map(h=>cell(h,{run:{bold:true},align:AlignmentType.CENTER}))});
+  const shade={fill:'EEEEEE'};
+  const headerRow=new TableRow({tableHeader:true,children:hdrLabels.map(h=>cell(h,{run:{bold:true},align:AlignmentType.CENTER},{shading:shade}))});
   const bodyRows=rows.map(r=>{
     const c=[cell(r.sl,{align:AlignmentType.CENTER}),cell(r.desc)];
     if(quotationCols.unit) c.push(cell(r.unit||'',{align:AlignmentType.CENTER}));
@@ -3732,44 +3733,54 @@ function _buildQuotationWord(docx, data){
   const lhUri = window._letterheadDataUrl || MEW_DEFAULT_LETTERHEAD;
   const ftUri = window._footerDataUrl || MEW_DEFAULT_FOOTER;
   const imgBytes = (uri)=>{ const b64=uri.split(',')[1]; const bin=atob(b64); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return a; };
+  // Full content width at narrow (0.5") margins ≈ 7.5" = 720pt. Letterhead aspect 1653x245, footer 1653x140.
+  const imgW=720;
   let headerPara, footerPara=null;
   try {
     headerPara = new Paragraph({
-      children:[ new ImageRun({ type:'jpg', data:imgBytes(lhUri), transformation:{ width:620, height:Math.round(620*245/1653) } }) ],
-      alignment:AlignmentType.CENTER, spacing:{after:120}
+      children:[ new ImageRun({ type:'jpg', data:imgBytes(lhUri), transformation:{ width:imgW, height:Math.round(imgW*245/1653) } }) ],
+      alignment:AlignmentType.CENTER, spacing:{after:80}
     });
   } catch(e) {
-    headerPara = new Paragraph({children:[tr('MICRO ENGINEERING WORKSHOP',{bold:true,size:36,color:'1A3A8F'})],alignment:AlignmentType.CENTER,spacing:{after:120}});
+    headerPara = new Paragraph({children:[tr('MICRO ENGINEERING WORKSHOP',{bold:true,size:36,color:'1A3A8F'})],alignment:AlignmentType.CENTER,spacing:{after:80}});
   }
   try {
     footerPara = new Paragraph({
-      children:[ new ImageRun({ type:'jpg', data:imgBytes(ftUri), transformation:{ width:620, height:Math.round(620*140/1653) } }) ],
-      alignment:AlignmentType.CENTER, spacing:{before:200}
+      children:[ new ImageRun({ type:'jpg', data:imgBytes(ftUri), transformation:{ width:imgW, height:Math.round(imgW*140/1653) } }) ],
+      alignment:AlignmentType.CENTER, spacing:{before:160}
     });
   } catch(e) { footerPara=null; }
+  // Ref (left) + Date (right) on one line via a right tab stop at the page edge
+  const refDateLine=new Paragraph({
+    tabStops:[{type:TabStopType.RIGHT, position:TabStopPosition.MAX}],
+    children:[ tr((data.ref?'Ref: '+data.ref:'')), new TextRun({text:'\t'+'Date: '+(data.date||''),font:F,size:22}) ]
+  });
   const children=[
     headerPara,
-    new Paragraph({children:[tr('Price Quotation',{bold:true,size:30,underline:{}})],alignment:AlignmentType.CENTER,spacing:{before:120,after:160}}),
-    new Paragraph({children:[tr((data.ref?'Ref: '+data.ref+'\t\t\t\t':'')+'Date: '+(data.date||''))],alignment:data.ref?AlignmentType.LEFT:AlignmentType.RIGHT}),
-    new Paragraph({children:[tr('To')]}),
+    new Paragraph({children:[tr('Price Quotation',{bold:true,size:30,underline:{}})],alignment:AlignmentType.CENTER,spacing:{before:80,after:140}}),
+    refDateLine,
+    new Paragraph({children:[tr('To')],spacing:{before:60}}),
   ];
   if(data.toDept) children.push(new Paragraph({children:[tr(data.toDept)]}));
   children.push(new Paragraph({children:[tr(data.toCompany,{bold:true})]}));
   if(data.toAddress) data.toAddress.split('\n').forEach(l=>children.push(new Paragraph({children:[tr(l)]})));
   if(data.attention) children.push(new Paragraph({children:[tr('Attention: '+data.attention)],spacing:{before:80}}));
-  children.push(new Paragraph({text:'',spacing:{after:80}}));
+  children.push(new Paragraph({text:'',spacing:{after:60}}));
   children.push(new Table({width:{size:100,type:WidthType.PERCENTAGE},rows:[headerRow,...bodyRows,totalRow]}));
-  children.push(new Paragraph({children:[tr('In word: Taka '+qtNumberToWords(grand)+' only.')],spacing:{before:160,after:120}}));
+  children.push(new Paragraph({children:[tr('In word: Taka '+qtNumberToWords(grand)+' only.')],spacing:{before:140,after:120}}));
   if(data.terms&&data.terms.length){
     children.push(new Paragraph({children:[tr('Terms & Conditions:',{bold:true,underline:{}})],spacing:{before:80}}));
     data.terms.forEach(t=>children.push(new Paragraph({children:[tr(t)]})));
   }
-  children.push(new Paragraph({children:[tr('Thanking you')],spacing:{before:240}}));
-  children.push(new Paragraph({children:[tr((data.signatory||'Masud Rana')+' (Manager)',{bold:true})],spacing:{before:240}}));
+  children.push(new Paragraph({children:[tr('Thanking you')],spacing:{before:200}}));
+  children.push(new Paragraph({children:[tr((data.signatory||'Masud Rana')+' (Manager)',{bold:true})],spacing:{before:220}}));
   children.push(new Paragraph({children:[tr('For: Micro Engineering Workshop')]}));
   if(footerPara) children.push(footerPara);
   else children.push(new Paragraph({children:[tr('33/B, Sarath Gupta Road, Narinda, Dhaka-1100 | Tel: 02-7126099, Mobile: 01711-682519',{size:18,color:'555555'})],alignment:AlignmentType.CENTER,spacing:{before:360}}));
-  const doc=new Document({sections:[{children}]});
+  const doc=new Document({sections:[{
+    properties:{ page:{ margin:{ top:720, bottom:720, left:720, right:720 } } }, // 0.5 inch all round
+    children
+  }]});
   Packer.toBlob(doc).then(blob=>{
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
