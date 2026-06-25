@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -3689,7 +3689,17 @@ async function exportQuotationPDF(data){
 }
 
 function exportQuotationWord(data){
-  if(typeof docx==='undefined'){ showNotif('Library loading','Word library still loading, try again.','warn'); return; }
+  const docxLib = (typeof docx!=='undefined') ? docx : (window.docx||null);
+  if(!docxLib){ showNotif('Library loading','Word library still loading — wait a moment and try again.','warn'); return; }
+  try{
+    _buildQuotationWord(docxLib, data);
+  }catch(e){
+    showNotif('Word export failed', (e&&e.message)||String(e), 'error');
+    console.error('Word export error:', e);
+  }
+}
+
+function _buildQuotationWord(docx, data){
   const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,AlignmentType,ImageRun}=docx;
   const {rows,grand}=qtCompute();
   const hasVat=data.vatPercent>0;
@@ -4249,8 +4259,8 @@ function renderAccess(){
     <div class="frow">
       <div style="width:34px;height:34px;border-radius:50%;background:${roleBg[u.role]||'var(--al)'};color:${roleColors[u.role]||'var(--accent)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${u.avatar}</div>
       <div class="frow-info">
-        <div class="frow-lbl">${u.name} <span class="badge" style="background:${roleBg[u.role]};color:${roleColors[u.role]}">${u.role}</span></div>
-        <div class="frow-meta">${u.email} · ${u.dept}</div>
+        <div class="frow-lbl">${u.name} <span class="badge" style="background:${roleBg[u.role]};color:${roleColors[u.role]}">${u.role}</span>${u.isSupervisor?' <span class="badge" style="background:var(--accent);color:#fff">Supervisor</span>':''}</div>
+        <div class="frow-meta">${u.email} · ${u.dept}${(!u.isSupervisor&&u.reportsTo)?' · reports to '+((USERS.find(x=>x.id===u.reportsTo)||{}).name||'—'):''}</div>
       </div>
       <div class="frow-acts">
         <span class="pill ${u.active?'p-done':'p-canc'}">${u.active?'Active':'Inactive'}</span>
@@ -5323,7 +5333,7 @@ async function applySharedSettings(){
     if(s.appSettings){ Object.assign(settings, s.appSettings);
       const sb=document.getElementById('company-name-sb'); if(sb&&settings.company) sb.textContent=settings.company; }
     if(s.accessControl){
-      if(Array.isArray(s.accessControl.users)){ USERS.length=0; s.accessControl.users.forEach(u=>USERS.push(u)); }
+      if(Array.isArray(s.accessControl.users)){ USERS.length=0; s.accessControl.users.forEach(u=>USERS.push(Object.assign({isSupervisor:false,reportsTo:''},u))); }
       if(s.accessControl.roles){ Object.keys(s.accessControl.roles).forEach(k=>{ ROLES[k]=s.accessControl.roles[k]; }); }
     }
   }catch(e){}
