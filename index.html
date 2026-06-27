@@ -3736,7 +3736,7 @@ function _buildQuotationWord(docx, data){
   // Letterhead goes in the page HEADER section, footer in the page FOOTER section,
   // so the footer pins to the bottom of every page and the images sit flush at the edges.
   const PG_MARGIN=240;            // small L/R page margin (twips)
-  const HF_IMG_W=595;            // full A4 width in pt -> image spans edge-to-edge
+  const HF_IMG_W=794;           // full A4 width in px @96dpi (docx sizes images in px) -> spans edge-to-edge
   // Negative indent pulls the image out past the margins so it's truly edge-to-edge
   let headerPara, footerPara;
   try {
