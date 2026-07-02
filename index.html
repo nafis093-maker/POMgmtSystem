@@ -976,7 +976,7 @@ let integrations = {
 // ═══════════════════════════════════════════════════
 //  MANUFACTURING DATA
 // ═══════════════════════════════════════════════════
-const TODAY = new Date('2026-05-17');
+const TODAY = (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 
 let jobs = [];
 
@@ -1043,11 +1043,13 @@ const F = {
   pct: n => Math.round(n*100)+'%',
   daysLeft: d => {
     if(!d) return null;
-    return Math.round((new Date(d)-TODAY)/(1000*60*60*24));
+    const target=new Date(d); target.setHours(0,0,0,0);
+    return Math.round((target-TODAY)/(1000*60*60*24));
   },
   riskFlag: (d,status) => {
     if(status==='Completed') return {cls:'risk-ok',txt:'✅ OK'};
-    const dl = Math.round((new Date(d)-TODAY)/(1000*60*60*24));
+    const target=new Date(d); target.setHours(0,0,0,0);
+    const dl = Math.round((target-TODAY)/(1000*60*60*24));
     if(dl<0) return {cls:'risk-overdue',txt:'🚨 OVERDUE'};
     if(dl<=3) return {cls:'risk-atrisk',txt:'⚠ AT RISK'};
     if(dl<=10) return {cls:'risk-watch',txt:'🟡 WATCH'};
