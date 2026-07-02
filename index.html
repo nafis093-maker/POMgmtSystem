@@ -1544,7 +1544,14 @@ function kbDrop(e,newStatus){
   if(!j||j.status===newStatus){window._kbDragging=null;return;}
   const oldStatus=j.status;
   j.status=newStatus;
-  if(newStatus==='Completed') j.completion=1;
+  if(!j.custom) j.custom={};
+  if(newStatus==='Completed'){
+    if(oldStatus!=='Completed'){ j.custom._prevCompletion=j.completion; }  // remember progress before completing
+    j.completion=1;
+  } else if(oldStatus==='Completed'){
+    // Reverting away from Completed: restore the completion it had before being marked complete
+    if(j.custom._prevCompletion!=null){ j.completion=j.custom._prevCompletion; delete j.custom._prevCompletion; }
+  }
   if(j.tl) j.tl.push({done:newStatus==='Completed',lbl:'Moved '+oldStatus+' → '+newStatus,t:new Date().toLocaleString()});
   window._kbDragging=null;
   updateBadges();
@@ -5150,7 +5157,18 @@ function printJob(){const j=jobs.find(x=>x.id===curJob);if(!j)return;const w=win
 function quickStatusChange(id,status){
   if(!status)return;
   const j=jobs.find(x=>x.id===id);
-  if(j){j.status=status;if(status==='Completed')j.completion=1;j.tl.push({done:status==='Completed',lbl:'Status → '+status,t:new Date().toLocaleString()});}
+  if(j){
+    const oldStatus=j.status;
+    j.status=status;
+    if(!j.custom) j.custom={};
+    if(status==='Completed'){
+      if(oldStatus!=='Completed'){ j.custom._prevCompletion=j.completion; }
+      j.completion=1;
+    } else if(oldStatus==='Completed'){
+      if(j.custom._prevCompletion!=null){ j.completion=j.custom._prevCompletion; delete j.custom._prevCompletion; }
+    }
+    j.tl.push({done:status==='Completed',lbl:'Status → '+status,t:new Date().toLocaleString()});
+  }
   closeModal();updateBadges();render();
   if(j) DB.updateJob(j);
   if(j && status==='Completed') fireJobCompletedAlert(j);
